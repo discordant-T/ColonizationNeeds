@@ -1,0 +1,9 @@
+obj/
+.vs/
+*.user
+*.suo
+*.tmp
+*.bak
+settings.json
+inventory-*.json
+*.zip
