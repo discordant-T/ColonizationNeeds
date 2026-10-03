@@ -1,0 +1,587 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Web.Script.Serialization;
+using System.Windows.Forms;
+
+public class ColonizationNeeds : Form
+{
+    static readonly Color WindowColor = Color.FromArgb(218, 225, 223);
+    static readonly Color TableColor = Color.FromArgb(235, 238, 233);
+    static readonly Color TextColor = Color.FromArgb(45, 57, 58);
+    static readonly Color AccentColor = Color.FromArgb(75, 104, 106);
+    static readonly Color CoveredColor = Color.FromArgb(47, 102, 76);
+
+    static void ApplyDialogPalette(Control control)
+    {
+        control.ForeColor = TextColor;
+        control.BackColor = WindowColor;
+        var button = control as Button;
+        if (button != null)
+        {
+            button.FlatStyle = FlatStyle.Flat; button.BackColor = AccentColor;
+            button.ForeColor = Color.FromArgb(246, 245, 235); button.FlatAppearance.BorderSize = 0;
+        }
+        if (control is TextBox || control is NumericUpDown || control is ComboBox) control.BackColor = TableColor;
+        foreach (Control child in control.Controls) ApplyDialogPalette(child);
+    }
+    // Category and display-name facts from EDCD/FDevIDs commodity.csv.
+    static readonly Dictionary<string, string[]> CommodityCatalog = CreateCommodityCatalog();
+    static Dictionary<string, string[]> CreateCommodityCatalog()
+    {
+        var catalog = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        const string data = @"advancedcatalysers|Technology|Advanced Catalysers
+agriculturalmedicines|Medicines|Agri-Medicines
+aluminium|Metals|Aluminium
+animalmeat|Foods|Animal Meat
+autofabricators|Technology|Auto-Fabricators
+basicmedicines|Medicines|Basic Medicines
+battleweapons|Weapons|Battle Weapons
+beer|Legal Drugs|Beer
+bioreducinglichen|Technology|Bioreducing Lichen
+biowaste|Waste|Biowaste
+buildingfabricators|Machinery|Building Fabricators
+ceramiccomposites|Industrial Materials|Ceramic Composites
+cmmcomposite|Industrial Materials|CMM Composite
+coffee|Foods|Coffee
+combatstabilisers|Medicines|Combat Stabilisers
+computercomponents|Technology|Computer Components
+copper|Metals|Copper
+cropharvesters|Machinery|Crop Harvesters
+emergencypowercells|Machinery|Emergency Power Cells
+evacuationshelter|Consumer Items|Evacuation Shelter
+fish|Foods|Fish
+foodcartridges|Foods|Food Cartridges
+fruitandvegetables|Foods|Fruit and Vegetables
+geologicalequipment|Machinery|Geological Equipment
+grain|Foods|Grain
+hazardousenvironmentsuits|Technology|H.E. Suits
+heliostaticfurnaces|Machinery|Microbial Furnaces
+insulatingmembrane|Industrial Materials|Insulating Membrane
+liquidoxygen|Chemicals|Liquid Oxygen
+liquor|Legal Drugs|Liquor
+medicaldiagnosticequipment|Technology|Medical Diagnostic Equipment
+microcontrollers|Technology|Micro Controllers
+militarygradefabrics|Textiles|Military Grade Fabrics
+mineralextractors|Machinery|Mineral Extractors
+mutomimager|Technology|Muon Imager
+nonlethalweapons|Weapons|Non-Lethal Weapons
+pesticides|Chemicals|Pesticides
+polymers|Industrial Materials|Polymers
+powergenerators|Machinery|Power Generators
+reactivearmour|Weapons|Reactive Armour
+resonatingseparators|Technology|Resonating Separators
+robotics|Technology|Robotics
+semiconductors|Industrial Materials|Semiconductors
+steel|Metals|Steel
+structuralregulators|Technology|Structural Regulators
+superconductors|Industrial Materials|Superconductors
+surfacestabilisers|Chemicals|Surface Stabilisers
+survivalequipment|Consumer Items|Survival Equipment
+tea|Foods|Tea
+terrainenrichmentsystems|Technology|Land Enrichment Systems
+thermalcoolingunits|Machinery|Thermal Cooling Units
+titanium|Metals|Titanium
+tritium|Chemicals|Tritium
+water|Chemicals|Water
+waterpurifiers|Machinery|Water Purifiers
+wine|Legal Drugs|Wine";
+        foreach (var line in data.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('|'); catalog[parts[0]] = new[] { parts[1], parts[2] };
+            catalog[CommodityKey(parts[2])] = catalog[parts[0]];
+        }
+        catalog["combatstabilizers"] = catalog["combatstabilisers"];
+        catalog["muonimager"] = catalog["mutomimager"];
+        catalog["landenrichmentsystems"] = catalog["terrainenrichmentsystems"];
+        catalog["microbialfurnaces"] = catalog["heliostaticfurnaces"];
+        return catalog;
+    }
+    static string CommodityKey(string key)
+    {
+        return Regex.Replace(key.Replace("$", "").Replace("_name;", "").Replace("_name", "").ToLowerInvariant(), "[^a-z0-9]", "");
+    }
+    public static string CommodityCategory(string key)
+    {
+        string[] info; return CommodityCatalog.TryGetValue(CommodityKey(key), out info) ? info[0] : "Other";
+    }
+    public static string CommodityName(string key)
+    {
+        string[] info; return CommodityCatalog.TryGetValue(CommodityKey(key), out info) ? info[1] : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(key.Replace("_", " "));
+    }
+    const string ApiBase = "https://ravencolonial100-awcbdvabgze4c5cq.canadacentral-01.azurewebsites.net/api/";
+    readonly TextBox project = new TextBox { Dock = DockStyle.Fill };
+    readonly Button refresh = new Button { Text = "Refresh", Dock = DockStyle.Right, Width = 75 };
+    readonly Button configure = new Button { Text = "Settings", Dock = DockStyle.Right, Width = 75 };
+    readonly Button editInventory = new Button { Text = "Edit inventory", Dock = DockStyle.Left, Width = 110, Enabled = false };
+    readonly Label totals = new Label { Dock = DockStyle.Bottom, Height = 55, Padding = new Padding(8), Text = "Totals (t): —" };
+    Dictionary<string, long> inventory = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+    Dictionary<string, object> displayedCargo;
+    HashSet<string> displayedUnknown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    bool editingInventory;
+    readonly ComboBox selection = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
+    string commander = "", apiKey = "";
+    bool updatingSelection;
+    class ProjectChoice
+    {
+        public string Id, Name;
+        public override string ToString() { return Name; }
+    }
+    readonly CheckBox pin = new CheckBox { Text = "Always on top", Checked = true, AutoSize = true };
+    readonly CheckBox auto = new CheckBox { Text = "Refresh every minute", Checked = true, AutoSize = true };
+    readonly Label status = new Label { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8), Text = "Paste a Raven Colonial project link or build ID." };
+    readonly ListView list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
+    readonly HttpClient client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+    readonly Timer timer = new Timer { Interval = 60000 };
+    readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
+    bool busy;
+    string shownId;
+
+    void MigrateLegacySettings()
+    {
+        string target = Path.GetDirectoryName(settings);
+        string legacy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RavenNeeds");
+        if (!Directory.Exists(legacy)) return;
+        Directory.CreateDirectory(target);
+        foreach (string file in Directory.GetFiles(legacy))
+        {
+            string name = Path.GetFileName(file);
+            if (name != "settings.json" && !(name.StartsWith("inventory-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))) continue;
+            string destination = Path.Combine(target, name);
+            if (!File.Exists(destination)) File.Copy(file, destination);
+        }
+    }
+
+    public ColonizationNeeds() : this(false) { }
+    public ColonizationNeeds(bool preview)
+    {
+        Text = "ColonizationNeeds — Elite Dangerous";
+        Size = new Size(620, 500); MinimumSize = new Size(580, 330);
+        Font = new Font("Segoe UI", 9); TopMost = true;
+        BackColor = WindowColor; ForeColor = TextColor;
+        refresh.BackColor = configure.BackColor = AccentColor;
+        refresh.ForeColor = configure.ForeColor = Color.FromArgb(246, 245, 235);
+        refresh.FlatStyle = configure.FlatStyle = FlatStyle.Flat;
+        editInventory.BackColor = refresh.BackColor; editInventory.ForeColor = refresh.ForeColor; editInventory.FlatStyle = FlatStyle.Flat;
+        foreach (var button in new[] { refresh, configure, editInventory }) { button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = Color.FromArgb(91, 122, 124); }
+        selection.ForeColor = TextColor; selection.BackColor = TableColor;
+        status.ForeColor = Color.FromArgb(77, 91, 91);
+        totals.BackColor = Color.FromArgb(207, 217, 213);
+        status.Text = "Open Settings to configure your Raven Colonial account.";
+        list.BackColor = TableColor; list.ForeColor = TextColor;
+        list.BorderStyle = BorderStyle.None;
+        list.OwnerDraw = true;
+        list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using (var brush = new SolidBrush(Color.FromArgb(199, 211, 209))) e.Graphics.FillRectangle(brush, e.Bounds);
+            var bounds = e.Bounds; bounds.Inflate(-7, 0);
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
+            flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, bounds, TextColor, flags);
+        };
+        list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { e.DrawDefault = true; };
+        list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
+        list.Columns.Add("Commodity", 230);
+        list.Columns.Add("Required (t)", 110, HorizontalAlignment.Right);
+        list.Columns.Add("In inventory (t)", 110, HorizontalAlignment.Right);
+        list.Columns.Add("Still needed (t)", 120, HorizontalAlignment.Right);
+        list.MultiSelect = false; list.HideSelection = false;
+        var header = new Panel { Dock = DockStyle.Top, Height = 100, Padding = new Padding(8) };
+        var entry = new Panel { Dock = DockStyle.Top, Height = 25 };
+        entry.Controls.Add(project); entry.Controls.Add(refresh); entry.Controls.Add(configure); entry.Controls.Add(editInventory);
+        var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 25 };
+        options.Controls.Add(pin); options.Controls.Add(auto);
+        header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
+        selection.BringToFront();
+        project.Visible = false;
+        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(header);
+        pin.CheckedChanged += delegate { TopMost = pin.Checked; };
+        refresh.Click += async delegate { await LoadProject(); };
+        configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
+        editInventory.Click += delegate { EditInventory(); };
+        list.DoubleClick += delegate { EditInventory(); };
+        list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
+        selection.SelectedIndexChanged += async delegate { if (!updatingSelection) await LoadProject(); };
+        project.KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await LoadProject(); } };
+        timer.Tick += async delegate { if (!editingInventory && auto.Checked && !String.IsNullOrWhiteSpace(commander)) await LoadProject(); };
+        try
+        {
+            if (!preview) MigrateLegacySettings();
+            if (File.Exists(settings))
+            {
+                var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(settings));
+                commander = saved["commander"];
+                if (!String.IsNullOrEmpty(saved["key"])) apiKey = Unprotect(saved["key"]);
+            }
+        }
+        catch { status.Text = "Saved settings could not be read. Open Settings to re-enter your account."; }
+        if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); await LoadProject(); } };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); client.Dispose(); };
+        client.Timeout = TimeSpan.FromSeconds(15);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.6");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+    }
+
+    string InventoryPath()
+    {
+        using (var hash = SHA256.Create())
+            return Path.Combine(Path.GetDirectoryName(settings), "inventory-" + BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(commander.Trim().ToLowerInvariant()))).Replace("-", "") + ".json");
+    }
+
+    public static Dictionary<string, long> ParseInventory(string json)
+    {
+        var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, long>>(json);
+        if (saved == null || saved.Any(x => String.IsNullOrWhiteSpace(x.Key) || x.Value < 0)) throw new Exception("Invalid saved inventory.");
+        return new Dictionary<string, long>(saved, StringComparer.OrdinalIgnoreCase);
+    }
+
+    void LoadInventory()
+    {
+        inventory = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        try { if (File.Exists(InventoryPath())) inventory = ParseInventory(File.ReadAllText(InventoryPath())); }
+        catch { MessageBox.Show(this, "Saved inventory could not be read. Quantities will start at zero. Your previous file is kept as a backup when you next save.", "Inventory"); }
+    }
+
+    void ClearCommodities()
+    {
+        displayedCargo = null; list.Items.Clear(); list.Groups.Clear(); totals.Text = "Totals (t): —"; editInventory.Enabled = false;
+    }
+
+    public static long Remaining(long required, long held)
+    {
+        if (required < 0 || held < 0) throw new ArgumentOutOfRangeException();
+        return held >= required ? 0 : required - held;
+    }
+
+    public static long AdjustInventory(long held, long amount, string operation)
+    {
+        if (held < 0 || amount < 0) throw new ArgumentOutOfRangeException();
+        if (operation == "Set total") return amount;
+        if (operation == "Remove")
+        {
+            if (amount > held) throw new ArgumentException("You cannot remove more than the current inventory.");
+            return held - amount;
+        }
+        if (operation == "Add") return checked(held + amount);
+        throw new ArgumentException("Choose Add, Remove, or Set total.");
+    }
+
+    void RenderCommodities()
+    {
+        if (displayedCargo == null) return;
+        long totalRequired = 0, totalHeld = 0, totalRemaining = 0;
+        int unknown = 0;
+        var rows = new List<ListViewItem>();
+        var groups = new Dictionary<string, ListViewGroup>();
+        foreach (var item in displayedCargo.OrderBy(x => CommodityCategory(x.Key) == "Other" ? "~" : CommodityCategory(x.Key), StringComparer.OrdinalIgnoreCase).ThenBy(x => CommodityName(x.Key), StringComparer.OrdinalIgnoreCase))
+        {
+            long required = Convert.ToInt64(item.Value);
+            long held; inventory.TryGetValue(item.Key, out held);
+            bool uncertain = displayedUnknown.Contains(item.Key);
+            if (required == 0 && held == 0 && !uncertain) continue;
+            long remaining = Remaining(required, held);
+            var row = new ListViewItem(CommodityName(item.Key));
+            string category = CommodityCategory(item.Key);
+            if (!groups.ContainsKey(category)) groups[category] = new ListViewGroup(category, HorizontalAlignment.Left);
+            row.Group = groups[category];
+            row.Tag = item.Key;
+            row.SubItems.Add(uncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
+            row.SubItems.Add(held.ToString("N0"));
+            row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
+            if (!uncertain && remaining == 0) row.ForeColor = CoveredColor;
+            rows.Add(row);
+            totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
+            if (uncertain) unknown++;
+        }
+        string selected = list.SelectedItems.Count > 0 ? Convert.ToString(list.SelectedItems[0].Tag) : null;
+        list.BeginUpdate();
+        try
+        {
+            list.Items.Clear(); list.Groups.Clear();
+            foreach (var group in groups.OrderBy(x => x.Key == "Other" ? "~" : x.Key, StringComparer.OrdinalIgnoreCase)) list.Groups.Add(group.Value);
+            list.ShowGroups = true; list.Items.AddRange(rows.ToArray());
+            foreach (ListViewItem row in list.Items) if (Convert.ToString(row.Tag) == selected) row.Selected = true;
+        }
+        finally { list.EndUpdate(); }
+        string suffix = unknown > 0 ? " + unknown" : "";
+        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + suffix + "   |   Inventory " + totalHeld.ToString("N0") + "   |   Still needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click a commodity to add, remove, or set its inventory.";
+        editInventory.Enabled = !busy;
+    }
+
+    void EditInventory()
+    {
+        if (busy || displayedCargo == null) return;
+        if (list.SelectedItems.Count == 0) { MessageBox.Show(this, "Select a commodity first, then click Edit inventory.", "Inventory"); return; }
+        var row = list.SelectedItems[0]; string commodity = Convert.ToString(row.Tag);
+        long held; inventory.TryGetValue(commodity, out held);
+        editingInventory = true;
+        try
+        {
+            using (var dialog = new Form { Text = "Inventory — " + row.Text, Size = new Size(420, 315), Font = Font, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+            {
+                dialog.Controls.Add(new Label { Left = 15, Top = 18, Width = 370, Text = "Current inventory: " + held.ToString("N0") + " t" });
+                var operation = new ComboBox { Left = 15, Top = 47, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
+                operation.Items.AddRange(new object[] { "Add", "Remove", "Set total" });
+                dialog.Controls.Add(operation);
+                var amountLabel = new Label { Left = 15, Top = 82, Width = 370, Text = "Quantity to add (tonnes)" };
+                dialog.Controls.Add(amountLabel);
+                var quantity = new NumericUpDown { Left = 15, Top = 106, Width = 370, Minimum = 0, Maximum = Int64.MaxValue, Value = 0, ThousandsSeparator = true, DecimalPlaces = 0 };
+                dialog.Controls.Add(quantity);
+                var result = new Label { Left = 15, Top = 140, Width = 370, Height = 24 };
+                dialog.Controls.Add(result);
+                dialog.Controls.Add(new Label { Left = 15, Top = 172, Width = 370, Height = 42, Text = "Remove cargo after deliveries or sales.\nThis inventory is shared across your project views." });
+                var save = new Button { Left = 215, Top = 230, Width = 80, Text = "Apply" };
+                var cancel = new Button { Left = 305, Top = 230, Width = 80, Text = "Cancel", DialogResult = DialogResult.Cancel };
+                dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
+                Action preview = delegate
+                {
+                    try
+                    {
+                        long next = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
+                        result.Text = "New inventory: " + next.ToString("N0") + " t"; result.ForeColor = TextColor; save.Enabled = true;
+                    }
+                    catch (ArgumentException ex) { result.Text = ex.Message; result.ForeColor = Color.Firebrick; save.Enabled = false; }
+                    catch (OverflowException) { result.Text = "The resulting quantity is too large."; result.ForeColor = Color.Firebrick; save.Enabled = false; }
+                };
+                operation.SelectedIndexChanged += delegate
+                {
+                    string mode = Convert.ToString(operation.SelectedItem);
+                    amountLabel.Text = mode == "Set total" ? "New total in inventory (tonnes)" : "Quantity to " + mode.ToLowerInvariant() + " (tonnes)";
+                    quantity.Value = mode == "Set total" ? held : 0;
+                    preview();
+                };
+                quantity.ValueChanged += delegate { preview(); };
+                operation.SelectedIndex = 0;
+                save.Click += delegate
+                {
+                    try
+                    {
+                        var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
+                        updated[commodity] = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
+                        // Check footer arithmetic before committing the edit.
+                        long sum = 0; foreach (var p in displayedCargo) { long n; if (updated.TryGetValue(p.Key, out n)) sum = checked(sum + n); }
+                        string path = InventoryPath(), temp = path + ".tmp";
+                        Directory.CreateDirectory(Path.GetDirectoryName(path));
+                        File.WriteAllText(temp, new JavaScriptSerializer().Serialize(updated));
+                        if (File.Exists(path)) File.Replace(temp, path, path + ".bak"); else File.Move(temp, path);
+                        inventory = updated; RenderCommodities(); dialog.DialogResult = DialogResult.OK;
+                    }
+                    catch { MessageBox.Show(dialog, "Inventory could not be saved. Check the quantity and access to your Local AppData folder."); }
+                };
+                ApplyDialogPalette(dialog);
+                preview();
+                dialog.ShowDialog(this);
+            }
+        }
+        finally { editingInventory = false; }
+    }
+
+    static string Protect(string key) { return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser)); }
+    static string Unprotect(string key) { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(key), null, DataProtectionScope.CurrentUser)); }
+    bool Configure()
+    {
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 250), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        {
+            var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
+            var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
+            dialog.Controls.Add(new Label { Text = "Raven Colonial commander name (account identifier)", Left = 15, Top = 18, Width = 370 });
+            dialog.Controls.Add(name);
+            dialog.Controls.Add(new Label { Text = "API key (optional for public read access)", Left = 15, Top = 76, Width = 370 });
+            dialog.Controls.Add(key);
+            dialog.Controls.Add(new Label { Text = "Saved key is encrypted for your Windows account.", Left = 15, Top = 130, Width = 370 });
+            var save = new Button { Text = "Save", Left = 210, Top = 165, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 165, Width = 80, DialogResult = DialogResult.Cancel };
+            dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
+            save.Click += delegate
+            {
+                if (String.IsNullOrWhiteSpace(name.Text)) { MessageBox.Show(dialog, "Enter your commander name as shown on Raven Colonial."); return; }
+                if (key.Text.Contains("\r") || key.Text.Contains("\n")) { MessageBox.Show(dialog, "The API key must be a single line."); return; }
+                try
+                {
+                    var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) } };
+                    Directory.CreateDirectory(Path.GetDirectoryName(settings));
+                    File.WriteAllText(settings, new JavaScriptSerializer().Serialize(saved));
+                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); dialog.DialogResult = DialogResult.OK;
+                }
+                catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
+            };
+            ApplyDialogPalette(dialog);
+            return dialog.ShowDialog(this) == DialogResult.OK;
+        }
+    }
+
+    async Task<string> GetJson(string path)
+    {
+        using (var request = new HttpRequestMessage(HttpMethod.Get, ApiBase + path))
+        {
+            request.Headers.Add("rcc-cmdr0", Convert.ToBase64String(Encoding.UTF8.GetBytes(commander)));
+            if (apiKey.Length > 0) request.Headers.Add("rcc-key", apiKey);
+            using (var response = await client.SendAsync(request))
+            {
+                if (!response.IsSuccessStatusCode) throw new Exception("API returned HTTP " + (int)response.StatusCode + ". Check your account settings.");
+                var body = await response.Content.ReadAsStringAsync();
+                // Validate before the caller interprets the API-specific schema.
+                ReadJson(body);
+                return body;
+            }
+        }
+    }
+
+    public static object ReadJson(string json)
+    {
+        if (String.IsNullOrWhiteSpace(json)) throw new Exception("Raven Colonial returned an empty response. Try Refresh again.");
+        var text = json.Trim().TrimStart('\uFEFF');
+        if (text.StartsWith("<")) throw new Exception("Raven Colonial returned a web page instead of API data. Try Refresh again.");
+        try { return new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 }.DeserializeObject(text); }
+        catch (ArgumentException) { throw new Exception("Raven Colonial returned invalid JSON. Try Refresh again."); }
+        catch (InvalidOperationException) { throw new Exception("Raven Colonial returned invalid JSON. Try Refresh again."); }
+    }
+
+    public static List<Dictionary<string, object>> ParseActive(string json)
+    {
+        var raw = ReadJson(json);
+        var wrapper = raw as Dictionary<string, object>;
+        if (wrapper != null)
+        {
+            foreach (var key in new[] { "projects", "active", "data", "result" }) if (wrapper.ContainsKey(key)) { raw = wrapper[key]; break; }
+        }
+        var array = raw as object[];
+        if (array == null) throw new Exception("Unexpected active-project response from Raven Colonial.");
+        var result = new List<Dictionary<string, object>>();
+        foreach (var item in array)
+        {
+            var p = item as Dictionary<string, object>;
+            if (p == null && item is string) p = new Dictionary<string, object> { { "buildId", item } };
+            if (p == null || !p.ContainsKey("buildId")) throw new Exception("An active project has no build ID.");
+            BuildId(Convert.ToString(p["buildId"])); result.Add(p);
+        }
+        return result;
+    }
+
+    public static string BuildId(string input)
+    {
+        input = input.Trim();
+        Uri uri;
+        if (Uri.TryCreate(input, UriKind.Absolute, out uri))
+        {
+            if (uri.Scheme != "https" || (uri.Host != "ravencolonial.com" && uri.Host != "www.ravencolonial.com")) throw new Exception("Use a Raven Colonial HTTPS project link.");
+            var match = Regex.Match(uri.Fragment + "&" + uri.Query.TrimStart('?'), @"(?:[#?&]|^)build=([^&]+)", RegexOptions.IgnoreCase);
+            if (!match.Success) throw new Exception("The link must contain #build= followed by the build ID.");
+            input = Uri.UnescapeDataString(match.Groups[1].Value);
+        }
+        if (!Regex.IsMatch(input, @"^[A-Za-z0-9_-]{1,128}$")) throw new Exception("Enter a project build ID or a link containing #build=ID.");
+        return input;
+    }
+
+    public static Dictionary<string, object> ParseProject(string json)
+    {
+        var obj = ReadJson(json) as Dictionary<string, object>;
+        if (obj == null) throw new Exception("The API did not return a project object.");
+        foreach (var key in new[] { "data", "project", "result", "value" })
+            if (!obj.ContainsKey("commodities") && obj.ContainsKey(key) && obj[key] is Dictionary<string, object>) obj = (Dictionary<string, object>)obj[key];
+        if (!obj.ContainsKey("commodities") || !(obj["commodities"] is Dictionary<string, object>)) throw new Exception("No commodity requirements returned for this project.");
+        return obj;
+    }
+
+    async Task LoadProject()
+    {
+        if (busy) return;
+        if (String.IsNullOrWhiteSpace(commander)) { status.Text = "Open Settings to enter your commander name."; return; }
+        var choice = selection.SelectedItem as ProjectChoice;
+        string id = choice == null ? "" : choice.Id;
+        busy = true; refresh.Enabled = false; configure.Enabled = false; selection.Enabled = false; editInventory.Enabled = false;
+        if (shownId != id) { ClearCommodities(); shownId = null; }
+        status.Text = "Fetching project…";
+        try
+        {
+            var active = ParseActive(await GetJson("cmdr/" + Uri.EscapeDataString(commander) + "/active"));
+            updatingSelection = true;
+            try
+            {
+                selection.Items.Clear(); selection.Items.Add(new ProjectChoice { Id = "", Name = "All active projects (combined)" });
+                foreach (var p in active)
+                    selection.Items.Add(new ProjectChoice { Id = Convert.ToString(p["buildId"]), Name = p.ContainsKey("buildName") ? Convert.ToString(p["buildName"]) : Convert.ToString(p["buildId"]) });
+                selection.SelectedIndex = 0;
+                for (int i = 1; i < selection.Items.Count; i++) if (((ProjectChoice)selection.Items[i]).Id == id) selection.SelectedIndex = i;
+                string selectedId = ((ProjectChoice)selection.SelectedItem).Id;
+                if (selectedId != id) { id = selectedId; shownId = null; ClearCommodities(); }
+            }
+            finally { updatingSelection = false; }
+            if (active.Count == 0) { ClearCommodities(); shownId = null; status.Text = "No active projects for " + commander + ". Updated " + DateTime.Now.ToString("HH:mm:ss"); return; }
+            var cargo = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            var unknownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int projectCount = 0;
+            foreach (var p in active)
+            {
+                var build = Convert.ToString(p["buildId"]);
+                if (id.Length > 0 && build != id) continue;
+                var data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
+                projectCount++;
+                foreach (var pair in (Dictionary<string, object>)data["commodities"])
+                {
+                    long value;
+                    if (!Int64.TryParse(Convert.ToString(pair.Value, CultureInfo.InvariantCulture), out value)) throw new Exception("Unexpected commodity quantity from the API.");
+                    if (value < 0) { unknownKeys.Add(pair.Key); if (!cargo.ContainsKey(pair.Key)) cargo[pair.Key] = 0L; }
+                    else cargo[pair.Key] = checked((cargo.ContainsKey(pair.Key) ? Convert.ToInt64(cargo[pair.Key]) : 0L) + value);
+                }
+            }
+                displayedCargo = cargo; displayedUnknown = unknownKeys; RenderCommodities(); shownId = id;
+                Text = "ColonizationNeeds — " + commander;
+                status.Text = projectCount + " project(s) · Updated " + DateTime.Now.ToString("HH:mm:ss");
+        }
+        catch (TaskCanceledException) { status.Text = "Request timed out. " + (shownId == id ? "Displayed data is stale." : "Try Refresh again."); }
+        catch (Exception ex) { status.Text = ex.Message + (shownId == id ? " Displayed data is stale." : ""); }
+        finally { busy = false; if (!IsDisposed) { refresh.Enabled = true; configure.Enabled = true; selection.Enabled = true; editInventory.Enabled = displayedCargo != null; } }
+    }
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        if (args.Length > 0 && args[0] == "--self-test")
+        {
+            if (BuildId("https://ravencolonial.com/#build=abc-123") != "abc-123") throw new Exception("Link parsing failed");
+            var parsed = ParseProject("{\"project\":{\"commodities\":{\"steel\":123,\"water\":0,\"copper\":-1}}}");
+            if (((Dictionary<string, object>)parsed["commodities"]).Count != 3) throw new Exception("Schema parsing failed");
+            bool rejected = false; try { BuildId("https://example.com/#build=x"); } catch { rejected = true; }
+            if (!rejected) throw new Exception("Host validation failed");
+            if (ParseActive("[{\"buildId\":\"a\",\"buildName\":\"Test\"}]").Count != 1 || ParseActive("[]").Count != 0) throw new Exception("Active project parsing failed");
+            foreach (var bad in new[] { "<!DOCTYPE html><html></html>", "Invalid account", "", "{broken" })
+            {
+                bool handled = false;
+                try { ParseActive(bad); } catch (Exception ex) { handled = !ex.Message.Contains("Invalid JSON primitive"); }
+                if (!handled) throw new Exception("Non-JSON response handling failed");
+            }
+            if (ParseActive("\uFEFF[]").Count != 0) throw new Exception("BOM handling failed");
+            if (Remaining(100, 25) != 75 || Remaining(100, 100) != 0 || Remaining(100, 150) != 0 || Remaining(0, 10) != 0) throw new Exception("Inventory subtraction failed");
+            var stock = ParseInventory("{\"steel\":25,\"water\":0}");
+            if (stock["STEEL"] != 25 || ParseInventory(new JavaScriptSerializer().Serialize(stock))["steel"] != 25) throw new Exception("Inventory persistence failed");
+            bool negativeRejected = false; try { ParseInventory("{\"steel\":-1}"); } catch { negativeRejected = true; }
+            if (!negativeRejected) throw new Exception("Negative inventory accepted");
+            if (AdjustInventory(40, 15, "Add") != 55 || AdjustInventory(40, 15, "Remove") != 25 || AdjustInventory(40, 12, "Set total") != 12 || AdjustInventory(40, 40, "Remove") != 0) throw new Exception("Inventory adjustments failed");
+            bool overRemoval = false; try { AdjustInventory(40, 41, "Remove"); } catch (ArgumentException) { overRemoval = true; }
+            if (!overRemoval) throw new Exception("Over-removal accepted");
+            bool overflowRejected = false; try { AdjustInventory(Int64.MaxValue, 1, "Add"); } catch (OverflowException) { overflowRejected = true; }
+            if (!overflowRejected) throw new Exception("Overflow accepted");
+            if (CommodityCategory("water") != "Chemicals" || CommodityCategory("foodcartridges") != "Foods" || CommodityCategory("ceramiccomposites") != "Industrial Materials" || CommodityCategory("steel") != "Metals" || CommodityCategory("$MilitaryGradeFabrics_name;") != "Textiles" || CommodityCategory("futurecommodity") != "Other") throw new Exception("Commodity categories failed");
+            if (CommodityName("foodcartridges") != "Food Cartridges" || CommodityCategory("microbialfurnaces") != "Machinery") throw new Exception("Commodity labels/aliases failed");
+            return;
+        }
+        if (args.Length > 0 && args[0] == "--test-key-protection")
+        {
+            if (Unprotect(Protect("test-secret")) != "test-secret") throw new Exception("Credential encryption failed");
+            return;
+        }
+        Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
+    }
+}
+
