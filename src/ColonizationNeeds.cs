@@ -63,6 +63,7 @@ public class ColonizationNeeds : Form
     static readonly Color TableColor = Color.FromArgb(8, 8, 8);
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
     static readonly Color AccentColor = Color.FromArgb(65, 39, 12);
+    static readonly Color NeededColor = Color.FromArgb(255, 112, 112);
     static readonly Color CoveredColor = Color.FromArgb(99, 191, 105);
 
     static void StyleCombo(ComboBox combo)
@@ -263,7 +264,7 @@ wine|Legal Drugs|Wine";
             var bounds = e.Bounds; bounds.Inflate(-4, 0);
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
             flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, list.Font, bounds, e.Item.ForeColor, flags);
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, list.Font, bounds, e.SubItem.ForeColor, flags);
         };
         list.ItemSelectionChanged += delegate { list.Invalidate(); };
         list.GotFocus += delegate { list.Invalidate(); };
@@ -347,7 +348,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.15");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.16");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -500,6 +501,9 @@ wine|Legal Drugs|Wine";
             row.SubItems.Add(held.ToString("N0"));
             row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
             row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
+            row.UseItemStyleForSubItems = false;
+            foreach (ListViewItem.ListViewSubItem cell in row.SubItems) cell.ForeColor = row.ForeColor;
+            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : NeededColor;
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
@@ -520,6 +524,7 @@ wine|Legal Drugs|Wine";
                 for (int i = 0; i < rows.Count; i++)
                 {
                     for (int column = 1; column < 4; column++) list.Items[i].SubItems[column].Text = rows[i].SubItems[column].Text;
+                    for (int column = 0; column < 4; column++) list.Items[i].SubItems[column].ForeColor = rows[i].SubItems[column].ForeColor;
                     list.Items[i].ForeColor = rows[i].ForeColor;
                 }
             }
@@ -822,6 +827,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 
