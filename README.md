@@ -1,5 +1,7 @@
 # ColonizationNeeds
 
+Start with [the squadron leader installation guide](INSTALLATION.md) for Raven Colonial, Cloudflare and player token setup. Give invited players [the member setup guide](MEMBER-SETUP.md).
+
 A small native Windows application for Elite Dangerous colonization commodity requirements.
 
 Double-click **bin\ColonizationNeeds.exe**. On first launch, enter your **commander name as shown on Raven Colonial** and an optional API key in Settings, then click Save. This API identifies the account by commander name rather than a numeric website user ID. The app fetches your active builds automatically. Choose one project or **All active projects (combined)**. The app lists outstanding commodities in tonnes, refreshes once per minute, and stays above other windows when **Always on top** is checked. Resize or move it wherever you prefer. Use Elite Dangerous in borderless/windowed mode to keep it visible; exclusive fullscreen can cover desktop windows.
