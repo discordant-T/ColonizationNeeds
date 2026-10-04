@@ -1,6 +1,6 @@
 # Install the shared inventory backend
 
-This backend is prepared for https://colonizationneeds-api.macytr.workers.dev with a D1 binding named DB. It has not been deployed or tested on that account. The Windows application still uses local inventory until shared-client support is added.
+This backend is prepared for https://colonizationneeds-api.macytr.workers.dev with a D1 binding named DB. The deployed health check has been verified. The Windows application supports Settings > Shared inventory; authenticated transactions still need testing with generated player credentials.
 
 1. In Cloudflare, open Storage & databases > D1 > colonizationneeds-db > Console. Paste schema.sql and execute it. The script creates tables without removing existing data.
 2. Open Workers & Pages > colonizationneeds-api > Edit code. Replace the starter Worker source with worker.js, then Deploy. Keep the DB binding.
@@ -14,3 +14,6 @@ Player APIs require Authorization: Bearer <player token>. GET /inventory returns
 Inventory and ledger are updated atomically through a database trigger. No Raven Colonial requests are made by this backend. Stock is an estimate following Collect/Colonize rules; reconciliation is manual. Browser CORS access is not enabled; the intended client is the Windows app. No public endpoint creates accounts or exposes inventory without a token.
 
 Validation: Worker JavaScript syntax checked; SQLite tests cover ledger-trigger updates, duplicate retries, removal underflow, stale reconciliation versions and Colonize shortfalls. Live D1 deployment and end-to-end authorization remain unverified.
+
+Run Create-Player.cmd to provision your first admin. It prompts for a commander name and the existing OWNER_TOKEN with hidden input, then copies the generated player token to your clipboard. Paste that player token into the app. Default group is squad-carrier. Create other players with -Role member and the same group. Do not share the owner secret.
+

@@ -9,3 +9,5 @@ tracking.json
 inventory-*.json
 *.zip
 window.json
+shared-settings.json
+shared-outbox-*.json

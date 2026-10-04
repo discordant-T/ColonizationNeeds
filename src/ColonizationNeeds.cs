@@ -204,6 +204,10 @@ wine|Legal Drugs|Wine";
     readonly ComboBox cargoMode = new ComboBox { Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly Label cargoStatus = new Label { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8), Text = "Cargo tracking: Manual" };
     int windowOpacity = 100;
+    SharedInventoryClient shared;
+    bool sharedBusy, sharedConfigFailed;
+    readonly Timer sharedTimer = new Timer { Interval = 5000 };
+    readonly Label sharedStatus = new Label { Dock = DockStyle.Bottom, Height = 34, Padding = new Padding(8), Text = "Inventory: Local" };
     string selectedCargoMode = "Manual";
     string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
     JournalCargoTracker cargoTracker;
@@ -291,7 +295,7 @@ wine|Legal Drugs|Wine";
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
         project.Visible = false;
-        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(header);
+        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(header);
         pin.CheckedChanged += delegate { TopMost = pin.Checked; };
         refresh.Click += async delegate { await LoadProject(); };
         configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
@@ -313,6 +317,7 @@ wine|Legal Drugs|Wine";
             }
         };
         cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { cargoStatus.Text = "Cargo tracking paused: " + ex.Message; } } };
+        sharedTimer.Tick += async delegate { if (!editingInventory) await SyncShared(); };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
         list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
@@ -343,12 +348,17 @@ wine|Legal Drugs|Wine";
         }
         catch { cargoStatus.Text = "Tracking settings unreadable; using Manual mode."; }
         changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
-        if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await LoadProject(); } };
+        if (!preview)
+        {
+            try { shared = SharedInventoryClient.Load(Path.GetDirectoryName(settings)); }
+            catch { sharedConfigFailed=true; sharedStatus.Text = "Shared settings unreadable. Open Settings → Shared inventory."; }
+        }
+        if (!preview) Shown += async delegate { timer.Start(); sharedTimer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await SyncShared(); await LoadProject(); } };
         if (!preview) { RestoreWindowLocation(); FormClosing += delegate { SaveWindowLocation(); }; }
-        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.16");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.17");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -392,6 +402,26 @@ wine|Legal Drugs|Wine";
         try { cargoTracker = new JournalCargoTracker(journalFolder); cargoStatus.Text = "Cargo tracking: " + selectedCargoMode + " · Watching new ship loads"; }
         catch (Exception ex) { cargoTracker = null; cargoStatus.Text = "Cargo tracking paused: " + ex.Message; }
     }
+    bool SharedEnabled { get { return shared != null && shared.Enabled; } }
+    async Task SyncShared()
+    {
+        if (!SharedEnabled || sharedBusy) return;
+        var current = shared; sharedBusy = true;
+        try
+        {
+            await current.Sync();
+            if (IsDisposed || current != shared) return;
+            inventory = new Dictionary<string,long>(current.Stock, StringComparer.OrdinalIgnoreCase);
+            if(displayedCargo != null) foreach(var key in displayedCargo.Keys)
+            {
+                long value; if(current.Stock.TryGetValue(JournalCargoTracker.Canonical(key), out value)) inventory[key] = value;
+            }
+            inventoryReady = true; RenderCommodities();
+            sharedStatus.Text = "Shared: " + current.Group + " · " + current.Pending + " pending" + (current.Blocked ? " · Edit conflict; open Shared inventory" : " · " + DateTime.Now.ToString("HH:mm:ss")) + " " + current.Warning;
+        }
+        catch(Exception ex) { if(!IsDisposed) sharedStatus.Text = "Shared: " + current.Pending + " pending · " + ex.Message; }
+        finally { sharedBusy = false; }
+    }
     void SaveInventory(Dictionary<string, long> updated)
     {
         string path = InventoryPath(), temp = path + ".tmp";
@@ -409,6 +439,7 @@ wine|Legal Drugs|Wine";
     }
     void PollCargo()
     {
+        if(sharedConfigFailed) throw new IOException("Resolve unreadable Shared inventory settings before automatic tracking.");
         if (cargoTracker == null) ResetCargoTracker();
         if (cargoTracker == null || String.IsNullOrWhiteSpace(commander)) return;
         if (!inventoryReady && selectedCargoMode != "Manual") throw new IOException("Saved inventory could not be loaded. Correct it manually first.");
@@ -416,6 +447,12 @@ wine|Legal Drugs|Wine";
         cargoTracker.Poll(commander, delegate(Dictionary<string, long> gained)
         {
             if (selectedCargoMode == "Manual") return;
+            if (SharedEnabled)
+            {
+                shared.Enqueue(gained.Select(x => new SharedInventoryClient.Change { commodity=x.Key, amount=x.Value, operation=selectedCargoMode=="Collect"?"add":"colonize", source=selectedCargoMode }));
+                sharedStatus.Text = "Shared: " + shared.Pending + " pending changes";
+                return;
+            }
             var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
             long quantity = 0; bool shortage = false;
             foreach (var pair in gained)
@@ -448,6 +485,7 @@ wine|Legal Drugs|Wine";
 
     void LoadInventory()
     {
+        if(SharedEnabled) { inventory = new Dictionary<string,long>(shared.Stock, StringComparer.OrdinalIgnoreCase); inventoryReady=true; return; }
         inventoryReady = true;
         inventory = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         try { if (File.Exists(InventoryPath())) inventory = ParseInventory(File.ReadAllText(InventoryPath())); }
@@ -550,10 +588,12 @@ wine|Legal Drugs|Wine";
 
     void EditInventory()
     {
+        if(SharedEnabled && !shared.Ready) { MessageBox.Show(this,"Connect to shared inventory before editing it."); return; }
         if (busy || displayedCargo == null) return;
         if (list.SelectedItems.Count == 0) { MessageBox.Show(this, "Select a commodity first, then click Edit inventory.", "Inventory"); return; }
         var row = list.SelectedItems[0]; string commodity = Convert.ToString(row.Tag);
         long held; inventory.TryGetValue(commodity, out held);
+        long sharedVersion=0; if(SharedEnabled) shared.Versions.TryGetValue(JournalCargoTracker.Canonical(commodity),out sharedVersion);
         editingInventory = true;
         try
         {
@@ -561,7 +601,7 @@ wine|Legal Drugs|Wine";
             {
                 dialog.Controls.Add(new Label { Left = 15, Top = 18, Width = 370, Text = "Current inventory: " + held.ToString("N0") + " t" });
                 var operation = new ComboBox { Left = 15, Top = 47, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
-                operation.Items.AddRange(new object[] { "Add", "Remove", "Set total" });
+                operation.Items.AddRange(SharedEnabled && (!shared.Ready || shared.Role != "admin" || shared.Pending > 0) ? new object[] { "Add", "Remove" } : new object[] { "Add", "Remove", "Set total" });
                 dialog.Controls.Add(operation);
                 var amountLabel = new Label { Left = 15, Top = 82, Width = 370, Text = "Quantity to add (tonnes)" };
                 dialog.Controls.Add(amountLabel);
@@ -596,6 +636,13 @@ wine|Legal Drugs|Wine";
                 {
                     try
                     {
+                        if(SharedEnabled)
+                        {
+                            string key=JournalCargoTracker.Canonical(commodity); long version=sharedVersion;
+                            string op=Convert.ToString(operation.SelectedItem);
+                            shared.Enqueue(new[] { new SharedInventoryClient.Change { commodity=key, amount=Decimal.ToInt64(quantity.Value), operation=op=="Set total"?"set":op.ToLowerInvariant(), expectedVersion=version, source="Manual" } });
+                            sharedStatus.Text="Shared: "+shared.Pending+" pending changes"; dialog.DialogResult=DialogResult.OK; return;
+                        }
                         var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
                         updated[commodity] = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
                         // Check footer arithmetic before committing the edit.
@@ -614,9 +661,79 @@ wine|Legal Drugs|Wine";
 
     static string Protect(string key) { return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser)); }
     static string Unprotect(string key) { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(key), null, DataProtectionScope.CurrentUser)); }
+    void ConfigureShared()
+    {
+        if(sharedBusy) { MessageBox.Show(this,"Synchronization is in progress. Try again in a moment."); return; }
+        bool wasEditing=editingInventory; editingInventory=true;
+        try
+        {
+            using(var dialog=new Form { Text="Shared carrier inventory", Size=new Size(440,420), Font=Font, StartPosition=FormStartPosition.CenterParent, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, MinimizeBox=false })
+            {
+                var enabled=new CheckBox { Text="Use shared inventory", Checked=SharedEnabled, Left=15, Top=15, Width=380 };
+                var url=new TextBox { Text=shared==null?"https://colonizationneeds-api.macytr.workers.dev/":shared.Url, Left=15, Top=70, Width=390 };
+                var token=new TextBox { Text=shared==null?"":shared.Token, UseSystemPasswordChar=true, Left=15, Top=128, Width=390 };
+                dialog.Controls.Add(enabled); dialog.Controls.Add(new Label { Text="Server URL", Left=15, Top=46, Width=390 }); dialog.Controls.Add(url);
+                dialog.Controls.Add(new Label { Text="Player access token (not the owner secret)", Left=15, Top=104, Width=390 }); dialog.Controls.Add(token);
+                dialog.Controls.Add(new Label { Text="Your token identifies your player and carrier group.\nLocal stock is kept separately; it is not uploaded automatically.\nChanges appear after server confirmation, normally within 5 seconds.", Left=15, Top=162, Width=390, Height=64 });
+                var test=new Button { Text="Test connection", Left=15, Top=235, Width=125 };
+                var ledger=new Button { Text="View ledger", Left=145, Top=235, Width=110 };
+                var cancelEdit=new Button { Text="Cancel conflicted edit", Left=15, Top=277, Width=180, Enabled=shared!=null && shared.Blocked };
+                var message=new Label { Left=15, Top=315, Width=390, Height=25 };
+                var save=new Button { Text="Save", Left=230, Top=345, Width=80 };
+                var cancel=new Button { Text="Cancel", Left=325, Top=345, Width=80, DialogResult=DialogResult.Cancel };
+                dialog.Controls.Add(test); dialog.Controls.Add(ledger); dialog.Controls.Add(cancelEdit); dialog.Controls.Add(message); dialog.Controls.Add(save); dialog.Controls.Add(cancel);
+                test.Click += async delegate
+                {
+                    test.Enabled=false; save.Enabled=false;
+                    try { using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true)) { var data=await connection.Request("inventory"); message.Text="Connected: "+data["groupId"]+" · "+data["role"]; } }
+                    catch(Exception ex) { message.Text=ex.Message; }
+                    finally { if(!dialog.IsDisposed) { test.Enabled=true; save.Enabled=true; } }
+                };
+                ledger.Click += async delegate
+                {
+                    ledger.Enabled=false;
+                    try
+                    {
+                        using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true))
+                        {
+                            var data=await connection.Request("ledger?after=0");
+                            using(var view=new Form { Text="Shared ledger — first 200 entries", Size=new Size(740,440), StartPosition=FormStartPosition.CenterParent, Font=Font })
+                            {
+                                var text=new TextBox { Multiline=true, ReadOnly=true, Dock=DockStyle.Fill, ScrollBars=ScrollBars.Both, WordWrap=false };
+                                var lines=new List<string>();
+                                foreach(var item in (object[])data["transactions"]) { var row=(Dictionary<string,object>)item; lines.Add(row["created_at"]+" | "+row["player"]+" | "+row["commodity"]+" | "+row["operation"]+" "+row["amount"]+" | "+row["before_balance"]+" → "+row["after_balance"]+" | "+row["source"]); }
+                                text.Lines=lines.ToArray(); view.Controls.Add(text); ApplyDialogPalette(view); view.ShowDialog(dialog);
+                            }
+                        }
+                    }
+                    catch(Exception ex) { message.Text=ex.Message; }
+                    finally { if(!dialog.IsDisposed) ledger.Enabled=true; }
+                };
+                cancelEdit.Click += delegate { if(shared!=null && shared.CancelBlockedManual()) { cancelEdit.Enabled=false; message.Text="Conflicted edit cancelled. Refresh before correcting stock."; } };
+                save.Click += delegate
+                {
+                    try
+                    {
+                        var next=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,enabled.Checked);
+                        try
+                        {
+                            if(shared!=null && shared.Pending>0 && (next.Url!=shared.Url || next.Token!=shared.Token || next.Enabled!=shared.Enabled)) throw new IOException("Resolve pending changes before switching inventory or credentials.");
+                            next.SaveSettings();
+                        }
+                        catch { next.Dispose(); throw; }
+                        if(shared!=null) shared.Dispose(); shared=next; sharedConfigFailed=false; LoadInventory(); RenderCommodities(); ResetCargoTracker();
+                        sharedStatus.Text=SharedEnabled?"Shared: connecting…":"Inventory: Local"; dialog.DialogResult=DialogResult.OK;
+                    }
+                    catch(Exception ex) { message.Text=ex.Message; }
+                };
+                ApplyDialogPalette(dialog); dialog.CancelButton=cancel; dialog.ShowDialog(this);
+            }
+        }
+        finally { editingInventory=wasEditing; }
+    }
     bool Configure()
     {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 410), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 455), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -636,8 +753,10 @@ wine|Legal Drugs|Wine";
             dialog.Controls.Add(opacityLabel); dialog.Controls.Add(opacitySlider);
             opacitySlider.ValueChanged += delegate { opacityLabel.Text = "Window opacity: " + opacitySlider.Value + "%"; Opacity = opacitySlider.Value / 100.0; };
             dialog.FormClosed += delegate { if (dialog.DialogResult != DialogResult.OK) { windowOpacity = originalOpacity; Opacity = windowOpacity / 100.0; } };
-            var save = new Button { Text = "Save", Left = 210, Top = 325, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 325, Width = 80, DialogResult = DialogResult.Cancel };
+            var sharedButton = new Button { Text = "Shared inventory…", Left = 15, Top = 310, Width = 180 };
+            sharedButton.Click += delegate { ConfigureShared(); }; dialog.Controls.Add(sharedButton);
+            var save = new Button { Text = "Save", Left = 210, Top = 370, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 370, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
@@ -827,6 +946,8 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
+
 
 
 
