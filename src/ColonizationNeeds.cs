@@ -293,7 +293,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.10");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.11");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -416,7 +416,7 @@ wine|Legal Drugs|Wine";
             row.SubItems.Add(uncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
             row.SubItems.Add(held.ToString("N0"));
             row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
-            if (!uncertain && remaining == 0) row.ForeColor = CoveredColor;
+            row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
@@ -739,6 +739,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 
