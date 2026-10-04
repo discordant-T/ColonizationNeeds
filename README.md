@@ -54,3 +54,5 @@ Version 1.9 uses a near-black background with amber text and dark bronze control
 Version 1.10 preserves the exact scroll position and selection during quantity refreshes by updating rows in place. When commodities are added or removed, it keeps the same visible commodity as an anchor, or the nearest surviving row if that commodity disappears. Applies to API refreshes, automatic cargo tracking and manual inventory edits.
 
 Version 1.11 fixes text turning black during refresh. Uncovered and unknown commodities explicitly retain amber text; fully covered commodities remain green, including when stock changes between covered and uncovered.
+
+Version 1.12 replaces the native white opacity slider with an amber and bronze slider supporting mouse dragging, arrow keys, Home and End. The main window and dialogs request dark title bars with amber title text using Windows DWM attributes. Custom title-bar colors require Windows 11; older Windows versions retain their supported system frame colors.

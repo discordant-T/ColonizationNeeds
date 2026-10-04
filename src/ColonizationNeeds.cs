@@ -19,6 +19,44 @@ public class ColonizationNeeds : Form
     static extern IntPtr SendMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern int GetScrollPos(IntPtr handle, int bar);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr handle, int attribute, ref int value, int size);
+    static void ThemeTitle(Form form)
+    {
+        int dark = 1, background = ColorTranslator.ToWin32(WindowColor), text = ColorTranslator.ToWin32(TextColor), border = ColorTranslator.ToWin32(AccentColor);
+        DwmSetWindowAttribute(form.Handle, 20, ref dark, 4);
+        DwmSetWindowAttribute(form.Handle, 35, ref background, 4);
+        DwmSetWindowAttribute(form.Handle, 36, ref text, 4);
+        DwmSetWindowAttribute(form.Handle, 34, ref border, 4);
+    }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ThemeTitle(this); }
+    public sealed class AmberSlider : Control
+    {
+        int value = 100;
+        public int Minimum { get; set; }
+        public int Maximum { get; set; }
+        public int TickFrequency { get; set; }
+        public event EventHandler ValueChanged;
+        public int Value { get { return value; } set { int next = Math.Max(Minimum, Math.Min(Maximum, value)); if (this.value == next) return; this.value = next; Invalidate(); if (ValueChanged != null) ValueChanged(this, EventArgs.Empty); } }
+        public AmberSlider() { Minimum = 30; Maximum = 100; Height = 45; TabStop = true; AccessibleRole = AccessibleRole.Slider; AccessibleName = "Window opacity"; SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.Selectable, true); }
+        int ThumbX { get { return 10 + (int)((Width - 20) * (Value - Minimum) / (double)Math.Max(1, Maximum - Minimum)); } }
+        void SetFromMouse(int x) { Value = Minimum + (int)Math.Round((Maximum - Minimum) * Math.Max(0, Math.Min(Width - 20, x - 10)) / (double)Math.Max(1, Width - 20)); }
+        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button == MouseButtons.Left) { Focus(); Capture = true; SetFromMouse(e.X); } }
+        protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (Capture && e.Button == MouseButtons.Left) SetFromMouse(e.X); }
+        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); Capture = false; }
+        protected override bool IsInputKey(Keys key) { return key == Keys.Left || key == Keys.Right || key == Keys.Up || key == Keys.Down || base.IsInputKey(key); }
+        protected override void OnKeyDown(KeyEventArgs e) { base.OnKeyDown(e); if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Down) Value--; else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Up) Value++; else if (e.KeyCode == Keys.Home) Value = Minimum; else if (e.KeyCode == Keys.End) Value = Maximum; }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e); int y = 14;
+            using (var track = new SolidBrush(AccentColor)) e.Graphics.FillRectangle(track, 10, y - 2, Math.Max(1, Width - 20), 4);
+            using (var amber = new SolidBrush(TextColor)) { e.Graphics.FillRectangle(amber, 10, y - 2, Math.Max(1, ThumbX - 10), 4); e.Graphics.FillRectangle(amber, ThumbX - 5, y - 9, 10, 18); }
+            using (var ticks = new Pen(AccentColor)) for (int n = Minimum; n <= Maximum; n += Math.Max(1, TickFrequency)) { int x = 10 + (Width - 20) * (n - Minimum) / Math.Max(1, Maximum - Minimum); e.Graphics.DrawLine(ticks, x, 28, x, 32); }
+            if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(1, 1, Width - 2, Height - 2), TextColor, BackColor);
+        }
+    }
     static readonly Color WindowColor = Color.FromArgb(18, 17, 15);
     static readonly Color TableColor = Color.FromArgb(8, 8, 8);
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
@@ -38,6 +76,7 @@ public class ColonizationNeeds : Form
     }
     static void ApplyDialogPalette(Control control)
     {
+        var form = control as Form; if (form != null) { form.HandleCreated += delegate { ThemeTitle(form); }; if (form.IsHandleCreated) ThemeTitle(form); }
         control.ForeColor = TextColor;
         control.BackColor = WindowColor;
         var button = control as Button;
@@ -293,7 +332,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.11");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.12");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -543,7 +582,7 @@ wine|Legal Drugs|Wine";
             dialog.Controls.Add(folder); dialog.Controls.Add(browse);
             browse.Click += delegate { using (var picker = new FolderBrowserDialog { SelectedPath = folder.Text, Description = "Select the folder containing Journal.*.log and Cargo.json" }) { if (picker.ShowDialog(dialog) == DialogResult.OK) folder.Text = picker.SelectedPath; } };
             var opacityLabel = new Label { Text = "Window opacity: " + windowOpacity + "%", Left = 15, Top = 225, Width = 360 };
-            var opacitySlider = new TrackBar { Minimum = 30, Maximum = 100, Value = windowOpacity, TickFrequency = 10, Left = 15, Top = 250, Width = 360 };
+            var opacitySlider = new AmberSlider { Minimum = 30, Maximum = 100, Value = windowOpacity, TickFrequency = 10, Left = 15, Top = 250, Width = 360 };
             int originalOpacity = windowOpacity;
             dialog.Controls.Add(opacityLabel); dialog.Controls.Add(opacitySlider);
             opacitySlider.ValueChanged += delegate { opacityLabel.Text = "Window opacity: " + opacitySlider.Value + "%"; Opacity = opacitySlider.Value / 100.0; };
@@ -739,6 +778,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 
