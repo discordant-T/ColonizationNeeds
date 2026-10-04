@@ -5,5 +5,6 @@ obj/
 *.tmp
 *.bak
 settings.json
+tracking.json
 inventory-*.json
 *.zip

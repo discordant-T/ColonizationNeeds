@@ -142,6 +142,13 @@ wine|Legal Drugs|Wine";
     readonly ListView list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     readonly HttpClient client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
     readonly Timer timer = new Timer { Interval = 60000 };
+    readonly Timer cargoTimer = new Timer { Interval = 2000 };
+    readonly ComboBox cargoMode = new ComboBox { Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly Label cargoStatus = new Label { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8), Text = "Cargo tracking: Manual" };
+    string selectedCargoMode = "Manual";
+    string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
+    JournalCargoTracker cargoTracker;
+    bool changingMode, inventoryReady = true;
     readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
     bool busy;
     string shownId;
@@ -165,7 +172,7 @@ wine|Legal Drugs|Wine";
     public ColonizationNeeds(bool preview)
     {
         Text = "ColonizationNeeds — Elite Dangerous";
-        Size = new Size(620, 500); MinimumSize = new Size(580, 330);
+        Size = new Size(620, 565); MinimumSize = new Size(580, 395);
         Font = new Font("Segoe UI", 9); TopMost = true;
         BackColor = WindowColor; ForeColor = TextColor;
         refresh.BackColor = configure.BackColor = AccentColor;
@@ -192,21 +199,46 @@ wine|Legal Drugs|Wine";
         list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
         list.Columns.Add("Commodity", 230);
         list.Columns.Add("Required (t)", 110, HorizontalAlignment.Right);
-        list.Columns.Add("In inventory (t)", 110, HorizontalAlignment.Right);
+        list.Columns.Add("Carrier stock (t)", 110, HorizontalAlignment.Right);
         list.Columns.Add("Still needed (t)", 120, HorizontalAlignment.Right);
         list.MultiSelect = false; list.HideSelection = false;
-        var header = new Panel { Dock = DockStyle.Top, Height = 100, Padding = new Padding(8) };
+        var header = new Panel { Dock = DockStyle.Top, Height = 135, Padding = new Padding(8) };
         var entry = new Panel { Dock = DockStyle.Top, Height = 25 };
         entry.Controls.Add(project); entry.Controls.Add(refresh); entry.Controls.Add(configure); entry.Controls.Add(editInventory);
         var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 25 };
         options.Controls.Add(pin); options.Controls.Add(auto);
+        var modePanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32 };
+        modePanel.Controls.Add(new Label { Text = "Cargo mode", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+        cargoMode.Items.AddRange(new object[] { "Manual", "Collect", "Colonize" }); cargoMode.SelectedIndex = 0;
+        cargoMode.BackColor = TableColor; cargoMode.ForeColor = TextColor;
+        modePanel.Controls.Add(cargoMode);
+        modePanel.Controls.Add(new Label { Text = "Collect adds • Colonize subtracts new ship loads", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+        header.Controls.Add(modePanel);
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
         project.Visible = false;
-        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(header);
+        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(header);
         pin.CheckedChanged += delegate { TopMost = pin.Checked; };
         refresh.Click += async delegate { await LoadProject(); };
-        configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
+        configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
+        cargoMode.SelectedIndexChanged += delegate
+        {
+            if (changingMode) return;
+            string next = Convert.ToString(cargoMode.SelectedItem);
+            try
+            {
+                if (cargoTracker != null) { try { PollCargo(); } catch { if (next != "Manual") throw; } }
+                SaveTrackingSettings(next, journalFolder);
+                selectedCargoMode = next;
+                ResetCargoTracker();
+            }
+            catch (Exception ex)
+            {
+                changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
+                cargoStatus.Text = "Mode unchanged: " + ex.Message;
+            }
+        };
+        cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { cargoStatus.Text = "Cargo tracking paused: " + ex.Message; } } };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
         list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
@@ -224,12 +256,75 @@ wine|Legal Drugs|Wine";
             }
         }
         catch { status.Text = "Saved settings could not be read. Open Settings to re-enter your account."; }
-        if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); await LoadProject(); } };
-        FormClosed += delegate { timer.Stop(); timer.Dispose(); client.Dispose(); };
+        try
+        {
+            string trackingPath = Path.Combine(Path.GetDirectoryName(settings), "tracking.json");
+            if (File.Exists(trackingPath))
+            {
+                var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(trackingPath));
+                if (saved.ContainsKey("journalFolder")) journalFolder = saved["journalFolder"];
+                if (saved.ContainsKey("mode") && cargoMode.Items.Contains(saved["mode"])) selectedCargoMode = saved["mode"];
+            }
+        }
+        catch { cargoStatus.Text = "Tracking settings unreadable; using Manual mode."; }
+        changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
+        if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await LoadProject(); } };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.6");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.7");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+    }
+
+    void SaveTrackingSettings(string mode, string folder)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(settings));
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder } }));
+    }
+    void ResetCargoTracker()
+    {
+        try { cargoTracker = new JournalCargoTracker(journalFolder); cargoStatus.Text = "Cargo tracking: " + selectedCargoMode + " · Watching new ship loads"; }
+        catch (Exception ex) { cargoTracker = null; cargoStatus.Text = "Cargo tracking paused: " + ex.Message; }
+    }
+    void SaveInventory(Dictionary<string, long> updated)
+    {
+        string path = InventoryPath(), temp = path + ".tmp";
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        File.WriteAllText(temp, new JavaScriptSerializer().Serialize(updated));
+        if (File.Exists(path)) File.Replace(temp, path, path + ".bak"); else File.Move(temp, path);
+        inventory = updated; inventoryReady = true;
+    }
+    public static long ApplyCargoMode(long held, long acquired, string mode)
+    {
+        if (held < 0 || acquired < 0) throw new ArgumentOutOfRangeException();
+        if (mode == "Collect") return checked(held + acquired);
+        if (mode == "Colonize") return Remaining(held, acquired);
+        return held;
+    }
+    void PollCargo()
+    {
+        if (cargoTracker == null) ResetCargoTracker();
+        if (cargoTracker == null || String.IsNullOrWhiteSpace(commander)) return;
+        if (!inventoryReady && selectedCargoMode != "Manual") throw new IOException("Saved inventory could not be loaded. Correct it manually first.");
+        bool changed = false;
+        cargoTracker.Poll(commander, delegate(Dictionary<string, long> gained)
+        {
+            if (selectedCargoMode == "Manual") return;
+            var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
+            long quantity = 0; bool shortage = false;
+            foreach (var pair in gained)
+            {
+                string key = updated.Keys.FirstOrDefault(x => JournalCargoTracker.Canonical(x) == pair.Key) ?? pair.Key;
+                long held; updated.TryGetValue(key, out held);
+                if (selectedCargoMode == "Colonize" && pair.Value > held) shortage = true;
+                updated[key] = ApplyCargoMode(held, pair.Value, selectedCargoMode); quantity = checked(quantity + pair.Value);
+            }
+            SaveInventory(updated);
+            changed = true;
+            cargoStatus.Text = selectedCargoMode + ": " + (selectedCargoMode == "Collect" ? "+" : "−") + quantity.ToString("N0") + " t · " + DateTime.Now.ToString("HH:mm:ss") + (shortage ? " · Stock shortfall; correct manually" : "");
+        });
+        if (changed) RenderCommodities();
+        if (selectedCargoMode != "Manual" && !String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase)) cargoStatus.Text = "Cargo tracking: waiting for commander " + commander + ".";
     }
 
     string InventoryPath()
@@ -247,9 +342,10 @@ wine|Legal Drugs|Wine";
 
     void LoadInventory()
     {
+        inventoryReady = true;
         inventory = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         try { if (File.Exists(InventoryPath())) inventory = ParseInventory(File.ReadAllText(InventoryPath())); }
-        catch { MessageBox.Show(this, "Saved inventory could not be read. Quantities will start at zero. Your previous file is kept as a backup when you next save.", "Inventory"); }
+        catch { inventoryReady = false; MessageBox.Show(this, "Saved inventory could not be read. Automatic cargo changes are paused. Your previous file is kept as a backup when you next save.", "Inventory"); }
     }
 
     void ClearCommodities()
@@ -339,7 +435,7 @@ wine|Legal Drugs|Wine";
                 dialog.Controls.Add(quantity);
                 var result = new Label { Left = 15, Top = 140, Width = 370, Height = 24 };
                 dialog.Controls.Add(result);
-                dialog.Controls.Add(new Label { Left = 15, Top = 172, Width = 370, Height = 42, Text = "Remove cargo after deliveries or sales.\nThis inventory is shared across your project views." });
+                dialog.Controls.Add(new Label { Left = 15, Top = 172, Width = 370, Height = 42, Text = "Manual corrections update carrier stock.\nAutomatic modes act when cargo is loaded onto your ship." });
                 var save = new Button { Left = 215, Top = 230, Width = 80, Text = "Apply" };
                 var cancel = new Button { Left = 305, Top = 230, Width = 80, Text = "Cancel", DialogResult = DialogResult.Cancel };
                 dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
@@ -370,11 +466,7 @@ wine|Legal Drugs|Wine";
                         updated[commodity] = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
                         // Check footer arithmetic before committing the edit.
                         long sum = 0; foreach (var p in displayedCargo) { long n; if (updated.TryGetValue(p.Key, out n)) sum = checked(sum + n); }
-                        string path = InventoryPath(), temp = path + ".tmp";
-                        Directory.CreateDirectory(Path.GetDirectoryName(path));
-                        File.WriteAllText(temp, new JavaScriptSerializer().Serialize(updated));
-                        if (File.Exists(path)) File.Replace(temp, path, path + ".bak"); else File.Move(temp, path);
-                        inventory = updated; RenderCommodities(); dialog.DialogResult = DialogResult.OK;
+                        SaveInventory(updated); RenderCommodities(); dialog.DialogResult = DialogResult.OK;
                     }
                     catch { MessageBox.Show(dialog, "Inventory could not be saved. Check the quantity and access to your Local AppData folder."); }
                 };
@@ -390,7 +482,7 @@ wine|Legal Drugs|Wine";
     static string Unprotect(string key) { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(key), null, DataProtectionScope.CurrentUser)); }
     bool Configure()
     {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 250), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 325), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -399,8 +491,13 @@ wine|Legal Drugs|Wine";
             dialog.Controls.Add(new Label { Text = "API key (optional for public read access)", Left = 15, Top = 76, Width = 370 });
             dialog.Controls.Add(key);
             dialog.Controls.Add(new Label { Text = "Saved key is encrypted for your Windows account.", Left = 15, Top = 130, Width = 370 });
-            var save = new Button { Text = "Save", Left = 210, Top = 165, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 165, Width = 80, DialogResult = DialogResult.Cancel };
+            dialog.Controls.Add(new Label { Text = "Elite Dangerous journal folder", Left = 15, Top = 165, Width = 370 });
+            var folder = new TextBox { Text = journalFolder, Left = 15, Top = 188, Width = 275 };
+            var browse = new Button { Text = "Browse", Left = 295, Top = 186, Width = 80 };
+            dialog.Controls.Add(folder); dialog.Controls.Add(browse);
+            browse.Click += delegate { using (var picker = new FolderBrowserDialog { SelectedPath = folder.Text, Description = "Select the folder containing Journal.*.log and Cargo.json" }) { if (picker.ShowDialog(dialog) == DialogResult.OK) folder.Text = picker.SelectedPath; } };
+            var save = new Button { Text = "Save", Left = 210, Top = 240, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 240, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
@@ -411,6 +508,7 @@ wine|Legal Drugs|Wine";
                     var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) } };
                     Directory.CreateDirectory(Path.GetDirectoryName(settings));
                     File.WriteAllText(settings, new JavaScriptSerializer().Serialize(saved));
+                    SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); journalFolder = folder.Text.Trim();
                     commander = name.Text.Trim(); apiKey = key.Text.Trim(); dialog.DialogResult = DialogResult.OK;
                 }
                 catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
@@ -549,6 +647,8 @@ wine|Legal Drugs|Wine";
     {
         if (args.Length > 0 && args[0] == "--self-test")
         {
+            JournalCargoTracker.RunTests();
+            if (ApplyCargoMode(40, 15, "Collect") != 55 || ApplyCargoMode(40, 15, "Colonize") != 25 || ApplyCargoMode(10, 15, "Colonize") != 0 || ApplyCargoMode(40, 15, "Manual") != 40) throw new Exception("Cargo mode arithmetic failed");
             if (BuildId("https://ravencolonial.com/#build=abc-123") != "abc-123") throw new Exception("Link parsing failed");
             var parsed = ParseProject("{\"project\":{\"commodities\":{\"steel\":123,\"water\":0,\"copper\":-1}}}");
             if (((Dictionary<string, object>)parsed["commodities"]).Count != 3) throw new Exception("Schema parsing failed");
@@ -584,4 +684,5 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
