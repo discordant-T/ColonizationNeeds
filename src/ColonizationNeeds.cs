@@ -15,6 +15,10 @@ using System.Windows.Forms;
 
 public class ColonizationNeeds : Form
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr SendMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern int GetScrollPos(IntPtr handle, int bar);
     static readonly Color WindowColor = Color.FromArgb(18, 17, 15);
     static readonly Color TableColor = Color.FromArgb(8, 8, 8);
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
@@ -289,7 +293,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.9");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.10");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -418,15 +422,39 @@ wine|Legal Drugs|Wine";
             if (uncertain) unknown++;
         }
         string selected = list.SelectedItems.Count > 0 ? Convert.ToString(list.SelectedItems[0].Tag) : null;
+        // Keep the same commodity at the same vertical offset, even if rows above it change.
+        ListViewItem anchor = list.Items.Cast<ListViewItem>().FirstOrDefault(x => x.Bounds.Bottom > Font.Height + 10 && x.Bounds.Top < list.ClientSize.Height);
+        string anchorKey = anchor == null ? null : Convert.ToString(anchor.Tag);
+        int anchorY = anchor == null ? 0 : anchor.Bounds.Top;
+        int anchorIndex = anchor == null ? 0 : anchor.Index;
+        int scrollPosition = list.IsHandleCreated ? GetScrollPos(list.Handle, 1) : 0;
+        bool sameRows = list.Items.Count == rows.Count && list.Items.Cast<ListViewItem>().Select(x => Convert.ToString(x.Tag)).SequenceEqual(rows.Select(x => Convert.ToString(x.Tag)));
         list.BeginUpdate();
         try
         {
+            if (sameRows)
+            {
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    for (int column = 1; column < 4; column++) list.Items[i].SubItems[column].Text = rows[i].SubItems[column].Text;
+                    list.Items[i].ForeColor = rows[i].ForeColor;
+                }
+            }
+            else
+            {
             list.Items.Clear(); list.Groups.Clear();
             foreach (var group in groups.OrderBy(x => x.Key == "Other" ? "~" : x.Key, StringComparer.OrdinalIgnoreCase)) list.Groups.Add(group.Value);
             list.ShowGroups = true; list.Items.AddRange(rows.ToArray());
             foreach (ListViewItem row in list.Items) if (Convert.ToString(row.Tag) == selected) row.Selected = true;
+            }
         }
         finally { list.EndUpdate(); }
+        if (!sameRows && anchorKey != null && list.Items.Count > 0)
+        {
+            var restored = list.Items.Cast<ListViewItem>().FirstOrDefault(x => Convert.ToString(x.Tag) == anchorKey) ?? list.Items[Math.Min(anchorIndex, list.Items.Count - 1)];
+            restored.EnsureVisible();
+            SendMessage(list.Handle, 0x1014, IntPtr.Zero, new IntPtr(restored.Bounds.Top - anchorY)); // LVM_SCROLL, pixel offset.
+        }
         string suffix = unknown > 0 ? " + unknown" : "";
         totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + suffix + " | Stock " + totalHeld.ToString("N0") + " | Needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click to Add, Remove, or Set total.";
         editInventory.Enabled = !busy;
@@ -711,6 +739,8 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
+
 
 
 

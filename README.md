@@ -50,3 +50,5 @@ Validation includes historical-event skipping, duplicate polling, snapshots, inc
 Version 1.8 tightens the table spacing and starts at 480 pixels wide (previously 620), with a 460-pixel minimum width. The commodity column follows window resizing; hover over a shortened name to see its full text. All quantities are still in tonnes, shown by Totals (t). The mode description and footer are shorter to fit the narrower window.
 
 Version 1.9 uses a near-black background with amber text and dark bronze controls, inspired by the in-game project overlay. Covered stock stays green. Settings includes a Window opacity slider from 30% to 100%; dragging previews the main window immediately, Save remembers it across restarts, and Cancel restores the previous setting. Settings stays fully opaque for readability.
+
+Version 1.10 preserves the exact scroll position and selection during quantity refreshes by updating rows in place. When commodities are added or removed, it keeps the same visible commodity as an anchor, or the nearest surviving row if that commodity disappears. Applies to API refreshes, automatic cargo tracking and manual inventory edits.
