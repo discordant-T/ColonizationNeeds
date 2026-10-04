@@ -358,7 +358,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.17");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.18");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -677,11 +677,54 @@ wine|Legal Drugs|Wine";
                 dialog.Controls.Add(new Label { Text="Your token identifies your player and carrier group.\nLocal stock is kept separately; it is not uploaded automatically.\nChanges appear after server confirmation, normally within 5 seconds.", Left=15, Top=162, Width=390, Height=64 });
                 var test=new Button { Text="Test connection", Left=15, Top=235, Width=125 };
                 var ledger=new Button { Text="View ledger", Left=145, Top=235, Width=110 };
+                var import=new Button { Text="Sync local to shared", Left=260, Top=235, Width=145 };
                 var cancelEdit=new Button { Text="Cancel conflicted edit", Left=15, Top=277, Width=180, Enabled=shared!=null && shared.Blocked };
                 var message=new Label { Left=15, Top=315, Width=390, Height=25 };
                 var save=new Button { Text="Save", Left=230, Top=345, Width=80 };
                 var cancel=new Button { Text="Cancel", Left=325, Top=345, Width=80, DialogResult=DialogResult.Cancel };
                 dialog.Controls.Add(test); dialog.Controls.Add(ledger); dialog.Controls.Add(cancelEdit); dialog.Controls.Add(message); dialog.Controls.Add(save); dialog.Controls.Add(cancel);
+                dialog.Controls.Add(import);
+                bool importing=false;
+                dialog.FormClosing += delegate(object sender,FormClosingEventArgs e) { if(importing) e.Cancel=true; };
+                import.Click += async delegate
+                {
+                    SharedInventoryClient connection=null; bool adopted=false;
+                    importing=true; import.Enabled=test.Enabled=ledger.Enabled=save.Enabled=cancel.Enabled=cancelEdit.Enabled=url.Enabled=token.Enabled=enabled.Enabled=false;
+                    try
+                    {
+                        if(shared!=null && shared.Pending>0) throw new IOException("Resolve pending shared changes before replacing totals.");
+                        if(String.IsNullOrWhiteSpace(commander) || !File.Exists(InventoryPath())) throw new IOException("No saved local inventory exists for your configured commander.");
+                        var local=ParseInventory(File.ReadAllText(InventoryPath()));
+                        connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true);
+                        if(connection.Pending>0) throw new IOException("This connection has pending changes. Resolve them before syncing.");
+                        await connection.Sync();
+                        if(connection.Role!="admin") throw new IOException("Only a shared group admin can replace the totals.");
+                        var changes=SharedInventoryClient.ReplacementChanges(local,connection.Stock,connection.Versions);
+                        if(changes.Count==0) { message.Text="Shared totals already match local inventory."; return; }
+                        using(var preview=new Form { Text="Replace shared inventory — "+connection.Group, Size=new Size(540,440), Font=Font, StartPosition=FormStartPosition.CenterParent })
+                        {
+                            var explanation=new Label { Dock=DockStyle.Top, Height=65, Padding=new Padding(8), Text="Replace shared totals with saved local counts for "+commander+".\nShared commodities absent locally become zero. Your local copy is kept.\nEach correction is recorded in the shared ledger." };
+                            var lines=changes.Select(x=>CommodityName(x.commodity)+": "+(connection.Stock.ContainsKey(x.commodity)?connection.Stock[x.commodity]:0).ToString("N0")+" → "+x.amount.ToString("N0")+" t").ToArray();
+                            var contents=new TextBox { Multiline=true, ReadOnly=true, Dock=DockStyle.Fill, ScrollBars=ScrollBars.Vertical, Lines=lines };
+                            var buttons=new FlowLayoutPanel { Dock=DockStyle.Bottom, Height=38, FlowDirection=FlowDirection.RightToLeft };
+                            var confirm=new Button { Text="Replace totals", Width=125, DialogResult=DialogResult.OK };
+                            var abort=new Button { Text="Cancel", Width=90, DialogResult=DialogResult.Cancel };
+                            buttons.Controls.Add(confirm); buttons.Controls.Add(abort); preview.Controls.Add(contents); preview.Controls.Add(explanation); preview.Controls.Add(buttons); preview.CancelButton=abort; ApplyDialogPalette(preview);
+                            if(preview.ShowDialog(dialog)!=DialogResult.OK) return;
+                        }
+                        connection.SaveSettings(); connection.Enqueue(changes);
+                        if(shared!=null) shared.Dispose(); shared=connection; adopted=true; sharedConfigFailed=false;
+                        enabled.Checked=true; LoadInventory(); ResetCargoTracker();
+                        await SyncShared();
+                        message.Text=shared.Pending==0?"Local counts synced. Shared mode is now enabled.":"Sync queued: "+shared.Pending+" remaining. Check shared status.";
+                    }
+                    catch(Exception ex) { message.Text=ex.Message; }
+                    finally
+                    {
+                        if(connection!=null && !adopted) connection.Dispose();
+                        importing=false; if(!dialog.IsDisposed) { import.Enabled=test.Enabled=ledger.Enabled=save.Enabled=cancel.Enabled=url.Enabled=token.Enabled=enabled.Enabled=true; cancelEdit.Enabled=shared!=null && shared.Blocked; }
+                    }
+                };
                 test.Click += async delegate
                 {
                     test.Enabled=false; save.Enabled=false;
@@ -946,6 +989,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 

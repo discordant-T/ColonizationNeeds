@@ -76,6 +76,24 @@ public sealed class SharedInventoryClient : IDisposable
         }
         Write(queuePath,json.Serialize(next)); queue=next;
     }
+    public static List<Change> ReplacementChanges(Dictionary<string,long> local, Dictionary<string,long> stock, Dictionary<string,long> versions)
+    {
+        var normalized=new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
+        foreach(var pair in local)
+        {
+            string key=JournalCargoTracker.Canonical(pair.Key);
+            if(normalized.ContainsKey(key)) throw new ArgumentException("Local inventory contains duplicate aliases for "+key+". Correct it before syncing.");
+            if(pair.Value<0 || pair.Value>1000000000) throw new ArgumentException("Shared quantities must be between 0 and 1,000,000,000 tonnes.");
+            normalized[key]=pair.Value;
+        }
+        var changes=new List<Change>();
+        foreach(var key in normalized.Keys.Union(stock.Keys,StringComparer.OrdinalIgnoreCase).OrderBy(x=>x))
+        {
+            long target,previous,version; normalized.TryGetValue(key,out target); stock.TryGetValue(key,out previous); versions.TryGetValue(key,out version);
+            if(target!=previous) changes.Add(new Change { commodity=key, amount=target, operation="set", source="Manual", expectedVersion=version });
+        }
+        return changes;
+    }
     public bool CancelBlockedManual()
     {
         if(!Blocked || queue.Count==0 || queue[0].source!="Manual") return false;
