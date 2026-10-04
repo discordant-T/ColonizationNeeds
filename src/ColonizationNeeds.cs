@@ -172,7 +172,7 @@ wine|Legal Drugs|Wine";
     public ColonizationNeeds(bool preview)
     {
         Text = "ColonizationNeeds — Elite Dangerous";
-        Size = new Size(620, 565); MinimumSize = new Size(580, 395);
+        Size = new Size(480, 565); MinimumSize = new Size(460, 395);
         Font = new Font("Segoe UI", 9); TopMost = true;
         BackColor = WindowColor; ForeColor = TextColor;
         refresh.BackColor = configure.BackColor = AccentColor;
@@ -190,17 +190,19 @@ wine|Legal Drugs|Wine";
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             using (var brush = new SolidBrush(Color.FromArgb(199, 211, 209))) e.Graphics.FillRectangle(brush, e.Bounds);
-            var bounds = e.Bounds; bounds.Inflate(-7, 0);
+            var bounds = e.Bounds; bounds.Inflate(-4, 0);
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
             flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
             TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, bounds, TextColor, flags);
         };
         list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { e.DrawDefault = true; };
         list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
-        list.Columns.Add("Commodity", 230);
-        list.Columns.Add("Required (t)", 110, HorizontalAlignment.Right);
-        list.Columns.Add("Carrier stock (t)", 110, HorizontalAlignment.Right);
-        list.Columns.Add("Still needed (t)", 120, HorizontalAlignment.Right);
+        list.Columns.Add("Commodity", 190);
+        list.Columns.Add("Required", 76, HorizontalAlignment.Right);
+        list.Columns.Add("Carrier stock", 88, HorizontalAlignment.Right);
+        list.Columns.Add("Still needed", 88, HorizontalAlignment.Right);
+        list.ShowItemToolTips = true;
+        list.SizeChanged += delegate { list.Columns[0].Width = Math.Max(130, list.ClientSize.Width - 252 - SystemInformation.VerticalScrollBarWidth - 4); };
         list.MultiSelect = false; list.HideSelection = false;
         var header = new Panel { Dock = DockStyle.Top, Height = 135, Padding = new Padding(8) };
         var entry = new Panel { Dock = DockStyle.Top, Height = 25 };
@@ -212,7 +214,7 @@ wine|Legal Drugs|Wine";
         cargoMode.Items.AddRange(new object[] { "Manual", "Collect", "Colonize" }); cargoMode.SelectedIndex = 0;
         cargoMode.BackColor = TableColor; cargoMode.ForeColor = TextColor;
         modePanel.Controls.Add(cargoMode);
-        modePanel.Controls.Add(new Label { Text = "Collect adds • Colonize subtracts new ship loads", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+        modePanel.Controls.Add(new Label { Text = "Collect + / Colonize − (on loading)", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
         header.Controls.Add(modePanel);
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
@@ -271,7 +273,7 @@ wine|Legal Drugs|Wine";
         if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await LoadProject(); } };
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.7");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.8");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -386,7 +388,7 @@ wine|Legal Drugs|Wine";
             bool uncertain = displayedUnknown.Contains(item.Key);
             if (required == 0 && held == 0 && !uncertain) continue;
             long remaining = Remaining(required, held);
-            var row = new ListViewItem(CommodityName(item.Key));
+            var row = new ListViewItem(CommodityName(item.Key)); row.ToolTipText = row.Text;
             string category = CommodityCategory(item.Key);
             if (!groups.ContainsKey(category)) groups[category] = new ListViewGroup(category, HorizontalAlignment.Left);
             row.Group = groups[category];
@@ -410,7 +412,7 @@ wine|Legal Drugs|Wine";
         }
         finally { list.EndUpdate(); }
         string suffix = unknown > 0 ? " + unknown" : "";
-        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + suffix + "   |   Inventory " + totalHeld.ToString("N0") + "   |   Still needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click a commodity to add, remove, or set its inventory.";
+        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + suffix + " | Stock " + totalHeld.ToString("N0") + " | Needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click to Add, Remove, or Set total.";
         editInventory.Enabled = !busy;
     }
 
@@ -684,5 +686,6 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
