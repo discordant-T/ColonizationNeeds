@@ -255,8 +255,19 @@ wine|Legal Drugs|Wine";
             flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
             TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, bounds, TextColor, flags);
         };
-        list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { e.DrawDefault = true; };
-        list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
+        list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { e.DrawDefault = false; };
+        list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e)
+        {
+            Color background = e.Item.Selected ? Color.FromArgb(48, 34, 17) : TableColor;
+            using (var brush = new SolidBrush(background)) e.Graphics.FillRectangle(brush, e.Bounds);
+            var bounds = e.Bounds; bounds.Inflate(-4, 0);
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+            flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, list.Font, bounds, e.Item.ForeColor, flags);
+        };
+        list.ItemSelectionChanged += delegate { list.Invalidate(); };
+        list.GotFocus += delegate { list.Invalidate(); };
+        list.LostFocus += delegate { list.Invalidate(); };
         list.Columns.Add("Commodity", 190);
         list.Columns.Add("Required", 76, HorizontalAlignment.Right);
         list.Columns.Add("Carrier stock", 88, HorizontalAlignment.Right);
@@ -335,7 +346,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.13");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.14");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -781,6 +792,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 
