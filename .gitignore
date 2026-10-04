@@ -8,3 +8,4 @@ settings.json
 tracking.json
 inventory-*.json
 *.zip
+window.json

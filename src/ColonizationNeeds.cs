@@ -343,10 +343,11 @@ wine|Legal Drugs|Wine";
         catch { cargoStatus.Text = "Tracking settings unreadable; using Manual mode."; }
         changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
         if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await LoadProject(); } };
+        if (!preview) { RestoreWindowLocation(); FormClosing += delegate { SaveWindowLocation(); }; }
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.14");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.15");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -355,6 +356,35 @@ wine|Legal Drugs|Wine";
     {
         Directory.CreateDirectory(Path.GetDirectoryName(settings));
         File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder }, { "opacity", windowOpacity.ToString(CultureInfo.InvariantCulture) } }));
+    }
+    public static Point VisibleWindowLocation(Point location, Size size, Rectangle workingArea)
+    {
+        return new Point(Math.Max(workingArea.Left, Math.Min(location.X, workingArea.Right - size.Width)), Math.Max(workingArea.Top, Math.Min(location.Y, workingArea.Bottom - size.Height)));
+    }
+    void RestoreWindowLocation()
+    {
+        try
+        {
+            string path = Path.Combine(Path.GetDirectoryName(settings), "window.json");
+            if (!File.Exists(path)) return;
+            var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, int>>(File.ReadAllText(path));
+            var location = new Point(saved["x"], saved["y"]);
+            StartPosition = FormStartPosition.Manual;
+            Location = VisibleWindowLocation(location, Size, Screen.FromPoint(location).WorkingArea);
+        }
+        catch { /* An unreadable position must not prevent the application from opening. */ }
+    }
+    void SaveWindowLocation()
+    {
+        try
+        {
+            Point location = WindowState == FormWindowState.Normal ? Location : RestoreBounds.Location;
+            string path = Path.Combine(Path.GetDirectoryName(settings), "window.json"), temp = path + ".tmp";
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(temp, new JavaScriptSerializer().Serialize(new Dictionary<string, int> { { "x", location.X }, { "y", location.Y } }));
+            if (File.Exists(path)) File.Replace(temp, path, null); else File.Move(temp, path);
+        }
+        catch { /* Position saving is best effort; closing must remain possible. */ }
     }
     void ResetCargoTracker()
     {
@@ -792,6 +822,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 

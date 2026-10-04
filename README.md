@@ -60,3 +60,5 @@ Version 1.12 replaces the native white opacity slider with an amber and bronze s
 Version 1.13 applies the Windows dark control theme to the commodity list, including its right-hand scrollbar. Grouped-list scroll preservation was rechecked with enough commodities to show the scrollbar.
 
 Version 1.14 keeps commodity text amber or green when selected, with a dark bronze selection background. Focus changes no longer replace the row colors with the Windows selection palette.
+
+Version 1.15 remembers the window's screen position when it closes and restores it on startup. Position is saved locally in window.json. If the previous monitor is unavailable or the saved position would be off-screen, the window is moved into the nearest available monitor's working area. Closing while minimized or maximized saves its normal restored position.
