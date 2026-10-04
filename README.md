@@ -56,3 +56,5 @@ Version 1.10 preserves the exact scroll position and selection during quantity r
 Version 1.11 fixes text turning black during refresh. Uncovered and unknown commodities explicitly retain amber text; fully covered commodities remain green, including when stock changes between covered and uncovered.
 
 Version 1.12 replaces the native white opacity slider with an amber and bronze slider supporting mouse dragging, arrow keys, Home and End. The main window and dialogs request dark title bars with amber title text using Windows DWM attributes. Custom title-bar colors require Windows 11; older Windows versions retain their supported system frame colors.
+
+Version 1.13 applies the Windows dark control theme to the commodity list, including its right-hand scrollbar. Grouped-list scroll preservation was rechecked with enough commodities to show the scrollbar.

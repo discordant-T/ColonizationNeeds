@@ -57,6 +57,8 @@ public class ColonizationNeeds : Form
             if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(1, 1, Width - 2, Height - 2), TextColor, BackColor);
         }
     }
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int SetWindowTheme(IntPtr handle, string appName, string idList);
     static readonly Color WindowColor = Color.FromArgb(18, 17, 15);
     static readonly Color TableColor = Color.FromArgb(8, 8, 8);
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
@@ -243,6 +245,7 @@ wine|Legal Drugs|Wine";
         status.Text = "Open Settings to configure your Raven Colonial account.";
         list.BackColor = TableColor; list.ForeColor = TextColor;
         list.BorderStyle = BorderStyle.None;
+        list.HandleCreated += delegate { SetWindowTheme(list.Handle, "DarkMode_Explorer", null); SetWindowTheme(SendMessage(list.Handle, 0x101F, IntPtr.Zero, IntPtr.Zero), "DarkMode_ItemsView", null); };
         list.OwnerDraw = true;
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
         {
@@ -332,7 +335,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.12");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.13");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -778,6 +781,8 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
+
 
 
 
