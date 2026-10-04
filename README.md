@@ -48,3 +48,5 @@ The app checks new Elite Dangerous journal entries every two seconds while runni
 Validation includes historical-event skipping, duplicate polling, snapshots, incomplete lines, ship/SRV transfers, commander isolation, journal rollover, restart baselines, failed-save retry, and both mode calculations. Live in-game loading still needs verification during normal gameplay.
 
 Version 1.8 tightens the table spacing and starts at 480 pixels wide (previously 620), with a 460-pixel minimum width. The commodity column follows window resizing; hover over a shortened name to see its full text. All quantities are still in tonnes, shown by Totals (t). The mode description and footer are shorter to fit the narrower window.
+
+Version 1.9 uses a near-black background with amber text and dark bronze controls, inspired by the in-game project overlay. Covered stock stays green. Settings includes a Window opacity slider from 30% to 100%; dragging previews the main window immediately, Save remembers it across restarts, and Cancel restores the previous setting. Settings stays fully opaque for readability.

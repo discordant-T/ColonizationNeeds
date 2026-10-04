@@ -15,12 +15,23 @@ using System.Windows.Forms;
 
 public class ColonizationNeeds : Form
 {
-    static readonly Color WindowColor = Color.FromArgb(218, 225, 223);
-    static readonly Color TableColor = Color.FromArgb(235, 238, 233);
-    static readonly Color TextColor = Color.FromArgb(45, 57, 58);
-    static readonly Color AccentColor = Color.FromArgb(75, 104, 106);
-    static readonly Color CoveredColor = Color.FromArgb(47, 102, 76);
+    static readonly Color WindowColor = Color.FromArgb(18, 17, 15);
+    static readonly Color TableColor = Color.FromArgb(8, 8, 8);
+    static readonly Color TextColor = Color.FromArgb(240, 151, 35);
+    static readonly Color AccentColor = Color.FromArgb(65, 39, 12);
+    static readonly Color CoveredColor = Color.FromArgb(99, 191, 105);
 
+    static void StyleCombo(ComboBox combo)
+    {
+        combo.FlatStyle = FlatStyle.Flat;
+        combo.DrawMode = DrawMode.OwnerDrawFixed;
+        combo.DrawItem += delegate(object sender, DrawItemEventArgs e)
+        {
+            using (var brush = new SolidBrush((e.State & DrawItemState.Selected) != 0 ? AccentColor : TableColor)) e.Graphics.FillRectangle(brush, e.Bounds);
+            string text = e.Index >= 0 ? combo.GetItemText(combo.Items[e.Index]) : combo.Text;
+            TextRenderer.DrawText(e.Graphics, text, combo.Font, e.Bounds, TextColor, TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        };
+    }
     static void ApplyDialogPalette(Control control)
     {
         control.ForeColor = TextColor;
@@ -29,8 +40,9 @@ public class ColonizationNeeds : Form
         if (button != null)
         {
             button.FlatStyle = FlatStyle.Flat; button.BackColor = AccentColor;
-            button.ForeColor = Color.FromArgb(246, 245, 235); button.FlatAppearance.BorderSize = 0;
+            button.ForeColor = Color.FromArgb(255, 176, 59); button.FlatAppearance.BorderSize = 0;
         }
+        if (control is ComboBox) StyleCombo((ComboBox)control);
         if (control is TextBox || control is NumericUpDown || control is ComboBox) control.BackColor = TableColor;
         foreach (Control child in control.Controls) ApplyDialogPalette(child);
     }
@@ -145,6 +157,7 @@ wine|Legal Drugs|Wine";
     readonly Timer cargoTimer = new Timer { Interval = 2000 };
     readonly ComboBox cargoMode = new ComboBox { Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly Label cargoStatus = new Label { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8), Text = "Cargo tracking: Manual" };
+    int windowOpacity = 100;
     string selectedCargoMode = "Manual";
     string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
     JournalCargoTracker cargoTracker;
@@ -176,20 +189,21 @@ wine|Legal Drugs|Wine";
         Font = new Font("Segoe UI", 9); TopMost = true;
         BackColor = WindowColor; ForeColor = TextColor;
         refresh.BackColor = configure.BackColor = AccentColor;
-        refresh.ForeColor = configure.ForeColor = Color.FromArgb(246, 245, 235);
+        refresh.ForeColor = configure.ForeColor = Color.FromArgb(255, 176, 59);
         refresh.FlatStyle = configure.FlatStyle = FlatStyle.Flat;
         editInventory.BackColor = refresh.BackColor; editInventory.ForeColor = refresh.ForeColor; editInventory.FlatStyle = FlatStyle.Flat;
-        foreach (var button in new[] { refresh, configure, editInventory }) { button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = Color.FromArgb(91, 122, 124); }
+        foreach (var button in new[] { refresh, configure, editInventory }) { button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = Color.FromArgb(95, 57, 14); }
+        StyleCombo(selection); StyleCombo(cargoMode);
         selection.ForeColor = TextColor; selection.BackColor = TableColor;
-        status.ForeColor = Color.FromArgb(77, 91, 91);
-        totals.BackColor = Color.FromArgb(207, 217, 213);
+        status.ForeColor = Color.FromArgb(203, 133, 48);
+        totals.BackColor = Color.FromArgb(30, 24, 17);
         status.Text = "Open Settings to configure your Raven Colonial account.";
         list.BackColor = TableColor; list.ForeColor = TextColor;
         list.BorderStyle = BorderStyle.None;
         list.OwnerDraw = true;
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            using (var brush = new SolidBrush(Color.FromArgb(199, 211, 209))) e.Graphics.FillRectangle(brush, e.Bounds);
+            using (var brush = new SolidBrush(Color.FromArgb(42, 30, 16))) e.Graphics.FillRectangle(brush, e.Bounds);
             var bounds = e.Bounds; bounds.Inflate(-4, 0);
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
             flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
@@ -264,6 +278,7 @@ wine|Legal Drugs|Wine";
             if (File.Exists(trackingPath))
             {
                 var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(trackingPath));
+                int percent; if (saved.ContainsKey("opacity") && Int32.TryParse(saved["opacity"], out percent)) windowOpacity = Math.Max(30, Math.Min(100, percent));
                 if (saved.ContainsKey("journalFolder")) journalFolder = saved["journalFolder"];
                 if (saved.ContainsKey("mode") && cargoMode.Items.Contains(saved["mode"])) selectedCargoMode = saved["mode"];
             }
@@ -272,8 +287,9 @@ wine|Legal Drugs|Wine";
         changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
         if (!preview) Shown += async delegate { timer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await LoadProject(); } };
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); client.Dispose(); };
+        Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.8");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.9");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -281,7 +297,7 @@ wine|Legal Drugs|Wine";
     void SaveTrackingSettings(string mode, string folder)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(settings));
-        File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder } }));
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder }, { "opacity", windowOpacity.ToString(CultureInfo.InvariantCulture) } }));
     }
     void ResetCargoTracker()
     {
@@ -484,7 +500,7 @@ wine|Legal Drugs|Wine";
     static string Unprotect(string key) { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(key), null, DataProtectionScope.CurrentUser)); }
     bool Configure()
     {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 325), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 410), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -498,8 +514,14 @@ wine|Legal Drugs|Wine";
             var browse = new Button { Text = "Browse", Left = 295, Top = 186, Width = 80 };
             dialog.Controls.Add(folder); dialog.Controls.Add(browse);
             browse.Click += delegate { using (var picker = new FolderBrowserDialog { SelectedPath = folder.Text, Description = "Select the folder containing Journal.*.log and Cargo.json" }) { if (picker.ShowDialog(dialog) == DialogResult.OK) folder.Text = picker.SelectedPath; } };
-            var save = new Button { Text = "Save", Left = 210, Top = 240, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 240, Width = 80, DialogResult = DialogResult.Cancel };
+            var opacityLabel = new Label { Text = "Window opacity: " + windowOpacity + "%", Left = 15, Top = 225, Width = 360 };
+            var opacitySlider = new TrackBar { Minimum = 30, Maximum = 100, Value = windowOpacity, TickFrequency = 10, Left = 15, Top = 250, Width = 360 };
+            int originalOpacity = windowOpacity;
+            dialog.Controls.Add(opacityLabel); dialog.Controls.Add(opacitySlider);
+            opacitySlider.ValueChanged += delegate { opacityLabel.Text = "Window opacity: " + opacitySlider.Value + "%"; Opacity = opacitySlider.Value / 100.0; };
+            dialog.FormClosed += delegate { if (dialog.DialogResult != DialogResult.OK) { windowOpacity = originalOpacity; Opacity = windowOpacity / 100.0; } };
+            var save = new Button { Text = "Save", Left = 210, Top = 325, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 325, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
@@ -510,7 +532,10 @@ wine|Legal Drugs|Wine";
                     var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) } };
                     Directory.CreateDirectory(Path.GetDirectoryName(settings));
                     File.WriteAllText(settings, new JavaScriptSerializer().Serialize(saved));
-                    SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); journalFolder = folder.Text.Trim();
+                    int previousOpacity = windowOpacity;
+                    windowOpacity = opacitySlider.Value;
+                    try { SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); } catch { windowOpacity = previousOpacity; throw; }
+                    journalFolder = folder.Text.Trim();
                     commander = name.Text.Trim(); apiKey = key.Text.Trim(); dialog.DialogResult = DialogResult.OK;
                 }
                 catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
@@ -686,6 +711,10 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
+
+
+
 
 
 
