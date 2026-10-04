@@ -2,6 +2,8 @@
 
 This guide sets up ColonizationNeeds with your own Raven Colonial account and a shared carrier inventory hosted by Cloudflare Workers and D1. Members use the Windows application and a player token you give them. Only the leader needs to administer Cloudflare or run the player creation script.
 
+If you play alone, including on a squadron carrier, use the [solo player guide](SOLO-SETUP.md). Local inventory works without Cloudflare or shared storage.
+
 If your backend already works, skip to **Create player tokens** and **Add members**. You do not need a new database for each member.
 
 ## 1. Download the application

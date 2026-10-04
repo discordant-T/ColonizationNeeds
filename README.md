@@ -1,6 +1,6 @@
 # ColonizationNeeds
 
-Start with [the squadron leader installation guide](INSTALLATION.md) for Raven Colonial, Cloudflare and player token setup. Give squadron members [the member setup guide](MEMBER-SETUP.md).
+Start with [the solo player guide](SOLO-SETUP.md) to use local inventory with a personal or squadron carrier, without Cloudflare. For shared inventory, use [the squadron leader installation guide](INSTALLATION.md) and give squadron members [the member setup guide](MEMBER-SETUP.md).
 
 A small native Windows application for Elite Dangerous colonization commodity requirements.
 
