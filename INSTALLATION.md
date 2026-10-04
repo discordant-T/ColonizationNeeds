@@ -6,7 +6,7 @@ If your backend already works, skip to **Create player tokens** and **Add member
 
 ## 1. Download the application
 
-1. Sign in to GitHub and open [ColonizationNeeds](https://github.com/discordant-T/ColonizationNeeds). This repository is private, so your GitHub account must have access from its repository owner.
+1. Open the public [ColonizationNeeds repository](https://github.com/discordant-T/ColonizationNeeds). No GitHub account or invitation is needed to download it.
 2. Choose **Code > Download ZIP** and extract the ZIP. Keep the whole extracted project folder for the leader's setup scripts. For example, put it at `C:\Games\ColonizationNeeds`. Your extracted folder may have a name such as `ColonizationNeeds-main`; use its actual path in commands.
 3. Open `bin` and double-click `ColonizationNeeds.exe`.
 
@@ -112,7 +112,7 @@ Enter your owner secret at the hidden prompt. Privately send that member:
 3. Their individual player token.
 4. [MEMBER-SETUP.md](MEMBER-SETUP.md).
 
-For repository downloads, invite their GitHub account to the private repository first, or ask the repository owner to do so. Otherwise distribute the executable directly. Members do not need PowerShell, the backend scripts, a Cloudflare account, or your owner secret. A member token allows Add/Remove and automatic cargo updates; absolute **Set total** reconciliation requires admin access. Give admin access only to players who should reconcile the group's balances.
+Members can download from the public repository without a GitHub account or invitation, or you can distribute the executable directly. Members do not need PowerShell, the backend scripts, a Cloudflare account, or your owner secret. A member token allows Add/Remove and automatic cargo updates; absolute **Set total** reconciliation requires admin access. Give admin access only to players who should reconcile the group's balances.
 
 ## 9. Verify shared updates and choose cargo modes
 

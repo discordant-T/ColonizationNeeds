@@ -4,7 +4,7 @@ Your squadron leader supplies the application, the shared server URL, and your i
 
 ## Install
 
-1. Download the application from the leader. If using the [private GitHub repository](https://github.com/discordant-T/ColonizationNeeds), accept its access invitation, sign in, choose **Code > Download ZIP**, and extract it.
+1. Download the application from the leader or open the [public GitHub repository](https://github.com/discordant-T/ColonizationNeeds), choose **Code > Download ZIP**, and extract it. No GitHub account or invitation is needed.
 2. Run `bin\ColonizationNeeds.exe` from the extracted project. If the leader sent only the executable, run that file directly from your chosen folder.
 3. Windows with .NET Framework 4.8 is required, normally available on Windows 10/11.
 

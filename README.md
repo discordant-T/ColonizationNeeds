@@ -1,6 +1,6 @@
 # ColonizationNeeds
 
-Start with [the squadron leader installation guide](INSTALLATION.md) for Raven Colonial, Cloudflare and player token setup. Give invited players [the member setup guide](MEMBER-SETUP.md).
+Start with [the squadron leader installation guide](INSTALLATION.md) for Raven Colonial, Cloudflare and player token setup. Give squadron members [the member setup guide](MEMBER-SETUP.md).
 
 A small native Windows application for Elite Dangerous colonization commodity requirements.
 
@@ -35,7 +35,7 @@ Version 1.5 uses a soft slate and sage palette: a pale gray-green table, graphit
 
 Version 1.6 renames the application and executable to ColonizationNeeds and organizes source under src/, with the executable under bin/. Legacy RavenNeeds settings and inventory are copied into the new Local AppData folder on first launch. See PROJECT.md for project layout and multi-computer use.
 
-For other computers, download or clone the private repository and run bin\ColonizationNeeds.exe. Enter your API key on each computer; Windows-encrypted credentials and manual inventory remain local. To continue coding, open the downloaded project folder as a local Codex project.
+For other computers, download or clone the public repository and run bin\ColonizationNeeds.exe. No GitHub account or invitation is needed to download it. Enter your API key on each computer; Windows-encrypted credentials and manual inventory remain local. To continue coding, open the downloaded project folder as a local Codex project.
 
 Version 1.7 adds **Cargo mode**:
 
