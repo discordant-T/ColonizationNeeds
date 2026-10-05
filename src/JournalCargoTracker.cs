@@ -8,10 +8,11 @@ using System.Web.Script.Serialization;
 // Reads only complete, newly appended journal lines. Cargo snapshots are not acquisitions.
 public sealed class JournalCargoTracker
 {
-    sealed class Cursor { public long Offset; public bool SkipPartial; public string Commander = "", Vessel = "Ship"; }
+    sealed class Cursor { public long Offset; public bool SkipPartial; public string Commander = "", Vessel = "Ship", Market = "", System = ""; }
     readonly Dictionary<string, Cursor> cursors = new Dictionary<string, Cursor>(StringComparer.OrdinalIgnoreCase);
     readonly string folder;
     string currentCommander = "", currentVessel = "Ship";
+    string currentMarket = "", currentSystem = "";
     public string CurrentCommander { get { return currentCommander; } }
     public JournalCargoTracker(string folder)
     {
@@ -39,6 +40,7 @@ public sealed class JournalCargoTracker
                 }
             }
             currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
+            currentMarket = cursor.Market; currentSystem = cursor.System;
         }
     }
     static Dictionary<string, object> Parse(string line) { return new JavaScriptSerializer().DeserializeObject(line.TrimStart('\uFEFF')) as Dictionary<string, object>; }
@@ -51,7 +53,10 @@ public sealed class JournalCargoTracker
     static void UpdateContext(Cursor cursor, Dictionary<string, object> data)
     {
         string evt = Text(data, "event");
-        if (evt == "LoadGame") { cursor.Commander = Text(data, "Commander"); cursor.Vessel = "Ship"; }
+        if (evt == "LoadGame") { cursor.Commander = Text(data, "Commander"); cursor.Vessel = "Ship"; cursor.Market = ""; cursor.System = ""; }
+        if (Text(data, "SystemAddress").Length > 0) cursor.System = Text(data, "SystemAddress");
+        if (evt == "Undocked" || evt == "FSDJump") cursor.Market = "";
+        if (Text(data, "MarketID").Length > 0) cursor.Market = Text(data, "MarketID");
         if (evt == "Commander") cursor.Commander = Text(data, "Name");
         if (evt == "Cargo" && Text(data, "Vessel").Length > 0) cursor.Vessel = Text(data, "Vessel");
         if (evt == "LaunchSRV") cursor.Vessel = "SRV";
@@ -127,6 +132,18 @@ public sealed class JournalCargoTracker
             File.AppendAllText(second, "}\n{\"event\":\"MarketBuy\",\"Type\":\"steel\",\"Count\":4}\n");
             tracker.Poll("Test", add); tracker.Poll("Test", add);
             if (total != 23) throw new Exception("Restart or initial partial cargo replayed");
+            long depotCalls = 0;
+            Action<string, string, Dictionary<string, long>> receive = delegate(string market, string timestamp, Dictionary<string, long> remaining)
+            {
+                if (market != "123" || remaining["steel"] != 60 || remaining["water"] != 0) throw new Exception("Depot balance parsing failed");
+                depotCalls++;
+            };
+            File.AppendAllText(second, "{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":123,\"ResourcesRequired\":[{\"Name\":\"$steel_name;\",\"RequiredAmount\":100,\"ProvidedAmount\":40},{\"Name\":\"water\",\"RequiredAmount\":10,\"ProvidedAmount\":15}]}\n");
+            tracker.Poll("Test", add, receive); tracker.Poll("Test", add, receive);
+            if (depotCalls != 1 || total != 23) throw new Exception("Depot snapshot replayed or affected stock");
+            File.AppendAllText(second, "{\"event\":\"LoadGame\",\"Commander\":\"Other\"}\n{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":123,\"ResourcesRequired\":[{\"Name\":\"steel\",\"RequiredAmount\":100,\"ProvidedAmount\":100}]}\n");
+            tracker.Poll("Test", add, receive);
+            if (depotCalls != 1) throw new Exception("Other commander depot processed");
         }
         finally
         {
@@ -146,13 +163,37 @@ public sealed class JournalCargoTracker
     }
     public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply)
     {
+        Poll(expectedCommander, apply, null);
+    }
+    public static Dictionary<string, long> DepotRemaining(Dictionary<string, object> data)
+    {
+        var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        object resources;
+        if (Text(data, "event") != "ColonisationConstructionDepot" || !data.TryGetValue("ResourcesRequired", out resources)) return result;
+        foreach (var resource in (object[])resources)
+        {
+            var row = resource as Dictionary<string, object>;
+            string key = Canonical(Text(row, "Name"));
+            if (key.Length == 0 || row == null) continue;
+            if (!row.ContainsKey("RequiredAmount") || !row.ContainsKey("ProvidedAmount")) throw new ArgumentException("Incomplete construction-depot quantities.");
+            long required = Count(row, "RequiredAmount", 0), provided = Count(row, "ProvidedAmount", 0);
+            result[key] = Math.Max(0, required - provided);
+        }
+        return result;
+    }
+    public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply, Action<string, string, Dictionary<string, long>> depot)
+    {
+        Poll(expectedCommander, apply, depot, null);
+    }
+    public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply, Action<string, string, Dictionary<string, long>> depot, Action<string, string, string, Dictionary<string, object>> report)
+    {
         if (!Directory.Exists(folder)) throw new IOException("Journal folder not found. Choose it in Settings.");
         foreach (var file in Directory.GetFiles(folder, "Journal.*.log").OrderBy(File.GetLastWriteTimeUtc))
         {
             Cursor cursor;
             if (!cursors.TryGetValue(file, out cursor))
             {
-                cursor = new Cursor { Commander = currentCommander, Vessel = currentVessel }; cursors[file] = cursor;
+                cursor = new Cursor { Commander = currentCommander, Vessel = currentVessel, Market = currentMarket, System = currentSystem }; cursors[file] = cursor;
             }
             if (new FileInfo(file).Length == cursor.Offset) continue;
             using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
@@ -170,8 +211,18 @@ public sealed class JournalCargoTracker
                         var data = text.Length > 0 ? Parse(text) : null;
                         UpdateContext(cursor, data);
                         currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
+                        currentMarket = cursor.Market; currentSystem = cursor.System;
                         if (String.Equals(cursor.Commander, expectedCommander.Trim(), StringComparison.OrdinalIgnoreCase))
                         {
+                            string evt = Text(data, "event");
+                            if (report != null && (evt == "ColonisationContribution" || evt == "ColonisationConstructionDepot"))
+                                report(Path.GetFileName(file) + ":" + stream.Position, cursor.System, cursor.Market, data);
+                            if (depot != null && Text(data, "event") == "ColonisationConstructionDepot")
+                            {
+                                string market = Text(data, "MarketID");
+                                var remaining = DepotRemaining(data);
+                                if (market.Length > 0 && remaining.Count > 0) depot(market, Text(data, "timestamp"), remaining);
+                            }
                             var gained = Acquisitions(data, cursor.Vessel);
                             if (gained.Count > 0) apply(gained); // Commit inventory before acknowledging this line.
                         }

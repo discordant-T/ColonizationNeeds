@@ -64,6 +64,7 @@ public class ColonizationNeeds : Form
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
     static readonly Color AccentColor = Color.FromArgb(65, 39, 12);
     static readonly Color NeededColor = Color.FromArgb(255, 112, 112);
+    static readonly Color DeliveryNeededColor = Color.FromArgb(102, 224, 255);
     static readonly Color CoveredColor = Color.FromArgb(99, 191, 105);
 
     static void StyleCombo(ComboBox combo)
@@ -211,6 +212,13 @@ wine|Legal Drugs|Wine";
     string selectedCargoMode = "Manual";
     string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
     JournalCargoTracker cargoTracker;
+    RavenDeliveryReporter ravenReporter;
+    string ravenReporterCommander;
+    bool reportDeliveries, ravenBusy;
+    readonly Label ravenStatus = new Label { Dock = DockStyle.Bottom, Height = 30, Padding = new Padding(8), Text = "Raven reporting: Off" };
+    readonly Dictionary<string, Dictionary<string, long>> depotBalances = new Dictionary<string, Dictionary<string, long>>();
+    Dictionary<string, object> displayedDelivery;
+    readonly Dictionary<string, Dictionary<string, object>> deliveryProjects = new Dictionary<string, Dictionary<string, object>>();
     bool changingMode, inventoryReady = true;
     readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
     bool busy;
@@ -295,7 +303,7 @@ wine|Legal Drugs|Wine";
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
         project.Visible = false;
-        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(header);
+        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(ravenStatus); Controls.Add(header);
         pin.CheckedChanged += delegate { TopMost = pin.Checked; };
         refresh.Click += async delegate { await LoadProject(); };
         configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
@@ -309,6 +317,7 @@ wine|Legal Drugs|Wine";
                 SaveTrackingSettings(next, journalFolder);
                 selectedCargoMode = next;
                 ResetCargoTracker();
+                RenderCommodities();
             }
             catch (Exception ex)
             {
@@ -317,7 +326,7 @@ wine|Legal Drugs|Wine";
             }
         };
         cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { cargoStatus.Text = "Cargo tracking paused: " + ex.Message; } } };
-        sharedTimer.Tick += async delegate { if (!editingInventory) await SyncShared(); };
+        sharedTimer.Tick += async delegate { if (!editingInventory) { await SyncShared(); await SyncRaven(); } };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
         list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
@@ -331,6 +340,7 @@ wine|Legal Drugs|Wine";
             {
                 var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(settings));
                 commander = saved["commander"];
+                reportDeliveries = saved.ContainsKey("reportDeliveries") && saved["reportDeliveries"] == "true";
                 if (!String.IsNullOrEmpty(saved["key"])) apiKey = Unprotect(saved["key"]);
             }
         }
@@ -355,10 +365,10 @@ wine|Legal Drugs|Wine";
         }
         if (!preview) Shown += async delegate { timer.Start(); sharedTimer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await SyncShared(); await LoadProject(); } };
         if (!preview) { RestoreWindowLocation(); FormClosing += delegate { SaveWindowLocation(); }; }
-        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); client.Dispose(); };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.18");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.21");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -465,6 +475,24 @@ wine|Legal Drugs|Wine";
             SaveInventory(updated);
             changed = true;
             cargoStatus.Text = selectedCargoMode + ": " + (selectedCargoMode == "Collect" ? "+" : "−") + quantity.ToString("N0") + " t · " + DateTime.Now.ToString("HH:mm:ss") + (shortage ? " · Stock shortfall; correct manually" : "");
+        }, delegate(string market, string timestamp, Dictionary<string, long> remaining)
+        {
+            if (selectedCargoMode != "Colonize") return;
+            DateTimeOffset observedAt;
+            remaining["__observedUtcTicks"] = DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observedAt) ? observedAt.UtcTicks : DateTime.UtcNow.Ticks;
+            depotBalances[commander.Trim().ToLowerInvariant() + "|" + market] = remaining;
+            Directory.CreateDirectory(Path.GetDirectoryName(settings));
+            string path = InventoryPath() + ".deliveries.json";
+            File.WriteAllText(path + ".tmp", new JavaScriptSerializer().Serialize(depotBalances));
+            if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
+            RecalculateDelivery(); changed = true;
+            cargoStatus.Text = "Colonize: depot requirements updated · " + DateTime.Now.ToString("HH:mm:ss");
+        }, delegate(string identity, string system, string market, Dictionary<string, object> entry)
+        {
+            if (!reportDeliveries) return;
+            EnsureRavenReporter();
+            ravenReporter.Capture(identity, system, market, entry);
+            ravenStatus.Text = ravenReporter.Status;
         });
         if (changed) RenderCommodities();
         if (selectedCargoMode != "Manual" && !String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase)) cargoStatus.Text = "Cargo tracking: waiting for commander " + commander + ".";
@@ -528,20 +556,23 @@ wine|Legal Drugs|Wine";
             long required = Convert.ToInt64(item.Value);
             long held; inventory.TryGetValue(item.Key, out held);
             bool uncertain = displayedUnknown.Contains(item.Key);
-            if (required == 0 && held == 0 && !uncertain) continue;
-            long remaining = Remaining(required, held);
+            bool requiredUncertain = uncertain;
+            if (required == 0 && held == 0 && !uncertain && selectedCargoMode != "Colonize") continue;
+            long remaining = selectedCargoMode == "Colonize" ? (displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) ? Convert.ToInt64(displayedDelivery[item.Key]) : required) : Remaining(required, held);
+            if (selectedCargoMode == "Colonize" && displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) && Convert.ToInt64(displayedDelivery[item.Key]) >= 0) uncertain = false;
+            if (remaining < 0) { remaining = 0; uncertain = true; }
             var row = new ListViewItem(CommodityName(item.Key)); row.ToolTipText = row.Text;
             string category = CommodityCategory(item.Key);
             if (!groups.ContainsKey(category)) groups[category] = new ListViewGroup(category, HorizontalAlignment.Left);
             row.Group = groups[category];
             row.Tag = item.Key;
-            row.SubItems.Add(uncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
+            row.SubItems.Add(requiredUncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
             row.SubItems.Add(held.ToString("N0"));
             row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
             row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
             row.UseItemStyleForSubItems = false;
             foreach (ListViewItem.ListViewSubItem cell in row.SubItems) cell.ForeColor = row.ForeColor;
-            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : NeededColor;
+            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : selectedCargoMode == "Colonize" ? DeliveryNeededColor : NeededColor;
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
@@ -774,9 +805,98 @@ wine|Legal Drugs|Wine";
         }
         finally { editingInventory=wasEditing; }
     }
+    void EnsureRavenReporter()
+    {
+        if (ravenReporter != null && ravenReporterCommander == commander) return;
+        if (ravenReporter != null) ravenReporter.Dispose();
+        ravenReporter = null;
+        ravenReporter = new RavenDeliveryReporter(Path.GetDirectoryName(settings), commander);
+        ravenReporterCommander = commander;
+    }
+    async Task SyncRaven()
+    {
+        if (ravenBusy || !reportDeliveries || editingInventory || String.IsNullOrWhiteSpace(commander)) { if (!reportDeliveries) ravenStatus.Text = "Raven reporting: Off"; return; }
+        ravenBusy = true;
+        try
+        {
+            EnsureRavenReporter();
+            await ravenReporter.Sync(client, ApiBase, apiKey, async delegate(string system, string market)
+            {
+                foreach (var pair in deliveryProjects)
+                    if (pair.Value.ContainsKey("marketId") && Convert.ToString(pair.Value["marketId"]) == market && market.Length > 0) return pair.Key;
+                if (!Regex.IsMatch(system, @"^\d+$") || !Regex.IsMatch(market, @"^\d+$")) return null;
+                var data = ReadJson(await GetJson("system/" + system + "/" + market)) as Dictionary<string, object>;
+                if (data == null) return null;
+                foreach (var wrapper in new[] { "project", "data", "result", "value" }) if (!data.ContainsKey("buildId") && data.ContainsKey(wrapper) && data[wrapper] is Dictionary<string, object>) data = (Dictionary<string, object>)data[wrapper];
+                return data.ContainsKey("buildId") ? BuildId(Convert.ToString(data["buildId"])) : null;
+            });
+            ravenStatus.Text = ravenReporter.Status;
+        }
+        catch (Exception ex) { ravenStatus.Text = "Raven reporting paused: " + ex.Message; }
+        finally { ravenBusy = false; }
+    }
+    void ReviewRavenReports()
+    {
+        try
+        {
+            EnsureRavenReporter();
+            using (var dialog = new Form { Text = "Raven delivery reports", Size = new Size(850, 450), Font = Font, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false })
+            {
+                var rows = new ListView { Left = 15, Top = 80, Width = 805, Height = 235, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
+                rows.Columns.Add("Time (local)", 140); rows.Columns.Add("Project / market", 145); rows.Columns.Add("Commodities", 330); rows.Columns.Add("Status", 165);
+                var includeDepots = new CheckBox { Text = "Include depot requirement updates", Left = 15, Top = 50, Width = 500 };
+                var hint = new Label { Text = "Recent captured deliveries, including submitted and pending reports.\nFor Needs review: check Raven history before marking recorded or retrying.", Left = 15, Top = 10, Width = 805, Height = 40 };
+                var detail = new Label { Left = 15, Top = 325, Width = 805, Height = 40 };
+                dialog.Controls.Add(hint); dialog.Controls.Add(includeDepots); dialog.Controls.Add(detail);
+                dialog.Controls.Add(rows);
+                var recorded = new Button { Text = "Mark recorded", Left = 15, Top = 375, Width = 150, Enabled = false };
+                var retry = new Button { Text = "Retry selected", Left = 180, Top = 375, Width = 150, Enabled = false };
+                var close = new Button { Text = "Close", Left = 670, Top = 375, Width = 150, DialogResult = DialogResult.Cancel };
+                Action populate = delegate
+                {
+                    rows.Items.Clear();
+                    foreach (var report in ravenReporter.History.Where(x => includeDepots.Checked || x.kind == "Contribution").Take(1000))
+                    {
+                        DateTimeOffset time;
+                        string when = DateTimeOffset.TryParse(report.timestamp, out time) ? time.ToLocalTime().ToString("g") : report.timestamp;
+                        string cargo = report.cargo != null ? String.Join(", ", report.cargo.Select(x => CommodityName(x.Key) + ": " + x.Value.ToString("N0") + " t")) : report.kind == "Depot" ? "Depot requirements" : report.payload != null ? String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) : "Quantity unavailable (older record)";
+                        string state = report.state == "Uncertain" ? "Needs review" : report.state == "InFlight" ? "Sending" : report.state == "Sent" ? report.outcome ?? "Submitted/recorded" : report.state;
+                        var row = new ListViewItem(when ?? ""); row.SubItems.Add(report.build ?? report.market ?? "Unknown"); row.SubItems.Add(cargo); row.SubItems.Add(state); row.Tag = report;
+                        row.ForeColor = report.state == "Sent" ? CoveredColor : report.state == "Uncertain" ? NeededColor : TextColor;
+                        rows.Items.Add(row);
+                    }
+                    detail.Text = rows.Items.Count == 0 ? "No captured deliveries. Enable reporting before delivery and keep the app running. Older journal events are not imported." : "Showing the most recent " + rows.Items.Count + " captured reports. Older successful records may lack commodity quantities.";
+                    recorded.Enabled = retry.Enabled = false;
+                };
+                rows.SelectedIndexChanged += delegate
+                {
+                    var selected = rows.SelectedItems.Count > 0 ? rows.SelectedItems[0].Tag as RavenDeliveryReporter.Report : null;
+                    recorded.Enabled = retry.Enabled = selected != null && selected.state == "Uncertain";
+                    if (selected != null) detail.Text = selected.error ?? (selected.kind == "Contribution" ? "Confirmed delivery event. " + (selected.outcome ?? selected.state) : "Depot requirement update. " + (selected.outcome ?? selected.state));
+                };
+                includeDepots.CheckedChanged += delegate { populate(); }; populate();
+                Action<bool> resolve = delegate(bool resend)
+                {
+                    if (rows.SelectedItems.Count == 0) return;
+                    var selected = rows.SelectedItems[0].Tag as RavenDeliveryReporter.Report;
+                    if (selected == null || selected.state != "Uncertain") return;
+                    if (resend && MessageBox.Show(dialog, "Retry only after verifying this delivery is absent from Raven Colonial. If already recorded, retrying duplicates commander credit. Retry?", "Retry contribution", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    try { ravenReporter.Resolve(selected.id, resend); ravenStatus.Text = ravenReporter.Status; populate(); }
+                    catch (Exception ex) { MessageBox.Show(dialog, ex.Message); }
+                };
+                recorded.Click += delegate { resolve(false); }; retry.Click += delegate { resolve(true); };
+                dialog.Controls.Add(recorded); dialog.Controls.Add(retry); dialog.Controls.Add(close);
+                ApplyDialogPalette(dialog); dialog.ShowDialog(this);
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message); }
+    }
     bool Configure()
     {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 455), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        bool previousEditing = editingInventory; editingInventory = true;
+        try
+        {
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 555), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -798,29 +918,38 @@ wine|Legal Drugs|Wine";
             dialog.FormClosed += delegate { if (dialog.DialogResult != DialogResult.OK) { windowOpacity = originalOpacity; Opacity = windowOpacity / 100.0; } };
             var sharedButton = new Button { Text = "Shared inventory…", Left = 15, Top = 310, Width = 180 };
             sharedButton.Click += delegate { ConfigureShared(); }; dialog.Controls.Add(sharedButton);
-            var save = new Button { Text = "Save", Left = 210, Top = 370, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 370, Width = 80, DialogResult = DialogResult.Cancel };
+            var report = new CheckBox { Text = "Report deliveries to Raven Colonial", Checked = reportDeliveries, Left = 15, Top = 350, Width = 360 };
+            dialog.Controls.Add(report);
+            dialog.Controls.Add(new Label { Text = "Requires your Raven API key. Disable delivery reporting\nin SrvSurvey / other reporters to avoid duplicate credit.", Left = 15, Top = 378, Width = 360, Height = 40 });
+            var review = new Button { Text = "Delivery reports…", Left = 15, Top = 423, Width = 230 };
+            review.Click += delegate { if (!ravenBusy) ReviewRavenReports(); }; dialog.Controls.Add(review);
+            var save = new Button { Text = "Save", Left = 210, Top = 470, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 470, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
                 if (String.IsNullOrWhiteSpace(name.Text)) { MessageBox.Show(dialog, "Enter your commander name as shown on Raven Colonial."); return; }
+                if (ravenBusy) { MessageBox.Show(dialog, "A Raven report is finishing. Try Save again shortly."); return; }
+                if (report.Checked && String.IsNullOrWhiteSpace(key.Text)) { MessageBox.Show(dialog, "Enter your Raven Colonial API key to enable delivery reporting."); return; }
                 if (key.Text.Contains("\r") || key.Text.Contains("\n")) { MessageBox.Show(dialog, "The API key must be a single line."); return; }
                 try
                 {
-                    var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) } };
+                    var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) }, { "reportDeliveries", report.Checked ? "true" : "false" } };
                     Directory.CreateDirectory(Path.GetDirectoryName(settings));
                     File.WriteAllText(settings, new JavaScriptSerializer().Serialize(saved));
                     int previousOpacity = windowOpacity;
                     windowOpacity = opacitySlider.Value;
                     try { SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); } catch { windowOpacity = previousOpacity; throw; }
                     journalFolder = folder.Text.Trim();
-                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); dialog.DialogResult = DialogResult.OK;
+                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); reportDeliveries = report.Checked; dialog.DialogResult = DialogResult.OK;
                 }
                 catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
             };
             ApplyDialogPalette(dialog);
             return dialog.ShowDialog(this) == DialogResult.OK;
         }
+        }
+        finally { editingInventory = previousEditing; }
     }
 
     async Task<string> GetJson(string path)
@@ -896,6 +1025,47 @@ wine|Legal Drugs|Wine";
         return obj;
     }
 
+    public static long DeliveryRemaining(long api, long observed, long apiTicks, long observedTicks)
+    {
+        if (apiTicks > 0 && apiTicks >= observedTicks) return api;
+        return api < 0 ? observed : Math.Min(api, observed);
+    }
+
+    public static long DepotObservationTicks(Dictionary<string, object> project)
+    {
+        object raw, timestamp;
+        DateTimeOffset observed;
+        var depot = project.TryGetValue("colonisationConstructionDepot", out raw) ? raw as Dictionary<string, object> : null;
+        return depot != null && depot.TryGetValue("timestamp", out timestamp) && DateTimeOffset.TryParse(Convert.ToString(timestamp), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observed) ? observed.UtcTicks : 0;
+    }
+
+    void RecalculateDelivery()
+    {
+        displayedDelivery = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var data in deliveryProjects.Values)
+        {
+            string market = data.ContainsKey("marketId") ? Convert.ToString(data["marketId"]) : "";
+            object nested;
+            if (market.Length == 0 && data.TryGetValue("colonisationConstructionDepot", out nested) && nested is Dictionary<string, object>)
+            {
+                var depot = (Dictionary<string, object>)nested;
+                if (depot.ContainsKey("MarketID")) market = Convert.ToString(depot["MarketID"]);
+            }
+            Dictionary<string, long> snapshot;
+            depotBalances.TryGetValue(commander.Trim().ToLowerInvariant() + "|" + market, out snapshot);
+            // Project metadata can change when a contribution is credited, before its depot snapshot is updated.
+            long apiTicks = DepotObservationTicks(data);
+            long observedTicks = 0; if (snapshot != null) snapshot.TryGetValue("__observedUtcTicks", out observedTicks);
+            foreach (var pair in (Dictionary<string, object>)data["commodities"])
+            {
+                long api = Convert.ToInt64(pair.Value), observed;
+                long amount = snapshot != null && snapshot.TryGetValue(JournalCargoTracker.Canonical(pair.Key), out observed) ? DeliveryRemaining(api, observed, apiTicks, observedTicks) : api;
+                long previous = displayedDelivery.ContainsKey(pair.Key) ? Convert.ToInt64(displayedDelivery[pair.Key]) : 0;
+                displayedDelivery[pair.Key] = previous < 0 || amount < 0 ? -1L : checked(previous + amount);
+            }
+        }
+    }
+
     async Task LoadProject()
     {
         if (busy) return;
@@ -924,11 +1094,14 @@ wine|Legal Drugs|Wine";
             var cargo = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
             var unknownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int projectCount = 0;
+            var fetchedProjects = new Dictionary<string, Dictionary<string, object>>();
             foreach (var p in active)
             {
                 var build = Convert.ToString(p["buildId"]);
                 if (id.Length > 0 && build != id) continue;
                 var data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
+                if (!data.ContainsKey("marketId") && p.ContainsKey("marketId")) data["marketId"] = p["marketId"];
+                fetchedProjects[build] = data;
                 projectCount++;
                 foreach (var pair in (Dictionary<string, object>)data["commodities"])
                 {
@@ -938,6 +1111,14 @@ wine|Legal Drugs|Wine";
                     else cargo[pair.Key] = checked((cargo.ContainsKey(pair.Key) ? Convert.ToInt64(cargo[pair.Key]) : 0L) + value);
                 }
             }
+                deliveryProjects.Clear(); foreach (var pair in fetchedProjects) deliveryProjects[pair.Key] = pair.Value;
+                string deliveryPath = InventoryPath() + ".deliveries.json";
+                if (File.Exists(deliveryPath))
+                {
+                    var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(deliveryPath));
+                    foreach (var pair in saved) depotBalances[pair.Key] = pair.Value;
+                }
+                RecalculateDelivery();
                 displayedCargo = cargo; displayedUnknown = unknownKeys; RenderCommodities(); shownId = id;
                 Text = "ColonizationNeeds — " + commander;
                 status.Text = projectCount + " project(s) · Updated " + DateTime.Now.ToString("HH:mm:ss");
@@ -953,6 +1134,7 @@ wine|Legal Drugs|Wine";
         if (args.Length > 0 && args[0] == "--self-test")
         {
             JournalCargoTracker.RunTests();
+            if (DeliveryRemaining(100, 60, 10, 20) != 60 || DeliveryRemaining(60, 60, 30, 20) != 60 || DeliveryRemaining(80, 60, 30, 20) != 80 || DeliveryRemaining(100, 0, 10, 20) != 0) throw new Exception("Delivery refresh reconciliation failed");
             if (ApplyCargoMode(40, 15, "Collect") != 55 || ApplyCargoMode(40, 15, "Colonize") != 25 || ApplyCargoMode(10, 15, "Colonize") != 0 || ApplyCargoMode(40, 15, "Manual") != 40) throw new Exception("Cargo mode arithmetic failed");
             if (BuildId("https://ravencolonial.com/#build=abc-123") != "abc-123") throw new Exception("Link parsing failed");
             var parsed = ParseProject("{\"project\":{\"commodities\":{\"steel\":123,\"water\":0,\"copper\":-1}}}");

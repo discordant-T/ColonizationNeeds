@@ -21,6 +21,7 @@
     <Compile Include="src\ColonizationNeeds.cs" />
     <Compile Include="src\JournalCargoTracker.cs" />
     <Compile Include="src\SharedInventoryClient.cs" />
+    <Compile Include="src\RavenDeliveryReporter.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
