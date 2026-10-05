@@ -12,7 +12,7 @@ class RavenReporterTest {
   public int posts, patches, gets; public bool timeout, rejected, newer; public string postBody, patchBody;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation) {
    if(!request.Headers.Contains("rcc-key") || request.Headers.GetValues("rcc-key").Single()!="test-key") throw new Exception("Auth missing");
-   if(request.Method==HttpMethod.Get) { gets++; return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"buildId\":\"A\",\"commodities\":{\"steel\":100},\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\"}")}; }
+   if(request.Method==HttpMethod.Get) { gets++; return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"buildId\":\"A\",\"commodities\":{\"steel\":100},\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\",\"colonisationConstructionDepot\":{\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\"}}")}; }
    if(request.Method==HttpMethod.Post) {
     posts++; postBody=await request.Content.ReadAsStringAsync();
     if(!request.RequestUri.AbsolutePath.EndsWith("/contribute/Test")) throw new Exception("Incorrect contribution route");
@@ -31,6 +31,10 @@ class RavenReporterTest {
  static async Task Run(){
   string root=Path.Combine(Path.GetTempPath(),"ColonizationNeeds-report-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
   try {
+   var metadataOnly=Parse("{\"timestamp\":\"2026-10-06T00:00:00Z\"}");
+   Assert(ColonizationNeeds.DepotObservationTicks(metadataOnly)==0,"Generic project update mistaken for depot observation");
+   Assert(ColonizationNeeds.DeliveryRemaining(1553,402,ColonizationNeeds.DepotObservationTicks(metadataOnly),1)==402,"Confirmed 1151-tonne delivery lost on refresh");
+   Assert(ColonizationNeeds.DeliveryRemaining(300,402,0,1)==300,"Later deliveries from other players hidden");
    var transport=new Transport();using(var http=new HttpClient(transport)){
     using(var reporter=new RavenDeliveryReporter(root,"Test")){
      reporter.Capture("file:100","456","123",Parse(Contribution));reporter.Capture("file:100","456","123",Parse(Contribution));
@@ -38,12 +42,14 @@ class RavenReporterTest {
      Assert(reporter.Pending==2,"Duplicate queue entries");
      await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
      Assert(transport.posts==1&&transport.patches==1&&reporter.Pending==0,"Send failed");
+     Assert(reporter.History.Single(x=>x.kind=="Contribution").cargo["steel"]==25&&reporter.History.Single(x=>x.kind=="Contribution").outcome=="Submitted","Delivery history missing quantities/status");
      Assert(transport.postBody.Contains("25")&&transport.patchBody.Contains("75")&&transport.patchBody.Contains("colonisationConstructionDepot"),"Incorrect payload arithmetic");
      Assert(!File.ReadAllText(Directory.GetFiles(root,"*.json").Single()).Contains("test-key"),"Credential persisted");
     }
     using(var reporter=new RavenDeliveryReporter(root,"Test")){
      reporter.Capture("file:100","456","123",Parse(Contribution));await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
      Assert(transport.posts==1,"Restart replayed delivery");
+     Assert(reporter.History.Single(x=>x.kind=="Contribution").cargo["steel"]==25,"Restart lost delivery history");
      transport.timeout=true;reporter.Capture("file:400","456","123",Parse(Contribution));await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
      Assert(reporter.Review.Count()==1&&transport.posts==2,"Uncertain POST not held");
     }

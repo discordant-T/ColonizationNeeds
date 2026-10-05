@@ -16,6 +16,8 @@ public sealed class RavenDeliveryReporter : IDisposable
     {
         public string id, system, market, build, kind, state, error, timestamp;
         public Dictionary<string, object> payload;
+        public Dictionary<string, long> cargo;
+        public string outcome;
     }
     public sealed class Saved
     {
@@ -30,6 +32,7 @@ public sealed class RavenDeliveryReporter : IDisposable
     DateTime retryAfter;
     public string Status { get; private set; }
     public IEnumerable<Report> Review { get { return saved.reports.Where(x => x.state == "Uncertain").ToArray(); } }
+    public IEnumerable<Report> History { get { return saved.reports.OrderByDescending(x => x.timestamp, StringComparer.Ordinal).ToArray(); } }
     public int Pending { get { return saved.reports.Count(x => x.state == "Pending" || x.state == "InFlight"); } }
     public RavenDeliveryReporter(string directory, string commander)
     {
@@ -52,7 +55,7 @@ public sealed class RavenDeliveryReporter : IDisposable
     }
     void Save()
     {
-        var durable = new Saved { depotSignatures = saved.depotSignatures, reports = saved.reports.Select(x => x.state == "Sent" ? new Report { id = x.id, system = x.system, market = x.market, build = x.build, kind = x.kind, state = x.state, timestamp = x.timestamp } : x).ToList() };
+        var durable = new Saved { depotSignatures = saved.depotSignatures, reports = saved.reports.Select(x => x.state == "Sent" ? new Report { id = x.id, system = x.system, market = x.market, build = x.build, kind = x.kind, state = x.state, timestamp = x.timestamp, cargo = x.cargo, outcome = x.outcome } : x).ToList() };
         File.WriteAllText(path + ".tmp", json.Serialize(durable));
         if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
         foreach (var report in saved.reports.Where(x => x.state == "Sent")) report.payload = null;
@@ -102,6 +105,7 @@ public sealed class RavenDeliveryReporter : IDisposable
         }
         else return;
         var report = new Report { id = id, system = system, market = market, kind = evt == "ColonisationContribution" ? "Contribution" : "Depot", state = "Pending", payload = payload, timestamp = entry.ContainsKey("timestamp") ? Convert.ToString(entry["timestamp"]) : "" };
+        if (report.kind == "Contribution") report.cargo = payload.ToDictionary(x => x.Key, x => Convert.ToInt64(x.Value));
         saved.reports.Add(report);
         string previous = null; bool hadPrevious = market.Length > 0 && saved.depotSignatures.TryGetValue(market, out previous);
         if (signature != null && market.Length > 0) saved.depotSignatures[market] = signature;
@@ -113,6 +117,7 @@ public sealed class RavenDeliveryReporter : IDisposable
     {
         var report = saved.reports.Single(x => x.id == id && x.state == "Uncertain");
         report.state = retry ? "Pending" : "Sent";
+        report.outcome = retry ? null : "Marked recorded";
         try { Save(); } catch { report.state = "Uncertain"; throw; }
         retryAfter = DateTime.MinValue; UpdateStatus();
     }
@@ -135,7 +140,7 @@ public sealed class RavenDeliveryReporter : IDisposable
                         Save();
                     }
                     // A newer pending snapshot supersedes an older unsent depot observation.
-                    if (report.kind == "Depot" && saved.reports.Any(x => x.kind == "Depot" && x.market == report.market && x.state == "Pending" && String.CompareOrdinal(x.timestamp, report.timestamp) > 0)) { report.state = "Sent"; Save(); continue; }
+                    if (report.kind == "Depot" && saved.reports.Any(x => x.kind == "Depot" && x.market == report.market && x.state == "Pending" && String.CompareOrdinal(x.timestamp, report.timestamp) > 0)) { report.state = "Sent"; report.outcome = "Superseded locally"; Save(); continue; }
                     string endpoint = "project/" + Uri.EscapeDataString(report.build);
                     if (report.kind == "Contribution") endpoint += "/contribute/" + Uri.EscapeDataString(commander);
                     else
@@ -146,8 +151,8 @@ public sealed class RavenDeliveryReporter : IDisposable
                         {
                             if (!response.IsSuccessStatusCode) throw new IOException("Project check HTTP " + (int)response.StatusCode);
                             var project = ColonizationNeeds.ParseProject(await response.Content.ReadAsStringAsync());
-                            DateTimeOffset serverTime, journalTime;
-                            if (project.ContainsKey("timestamp") && DateTimeOffset.TryParse(Convert.ToString(project["timestamp"]), out serverTime) && DateTimeOffset.TryParse(report.timestamp, out journalTime) && serverTime > journalTime) { report.state = "Sent"; Save(); continue; }
+                            DateTimeOffset journalTime;
+                            if (DateTimeOffset.TryParse(report.timestamp, out journalTime) && ColonizationNeeds.DepotObservationTicks(project) > journalTime.UtcTicks) { report.state = "Sent"; report.outcome = "Newer Raven data"; Save(); continue; }
                         }
                         report.payload["buildId"] = report.build;
                     }
@@ -163,7 +168,7 @@ public sealed class RavenDeliveryReporter : IDisposable
                             Save(); Status = "Raven report: " + report.error + (report.state == "Uncertain" ? " · review in Settings" : " · will retry"); retryAfter = DateTime.UtcNow.AddMinutes(1); return;
                         }
                     }
-                    report.state = "Sent"; report.error = null;
+                    report.state = "Sent"; report.error = null; report.outcome = "Submitted";
                     try { Save(); } catch { report.state = report.kind == "Contribution" ? "Uncertain" : "Pending"; throw; }
                 }
                 catch (Exception ex)

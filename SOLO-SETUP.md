@@ -29,7 +29,7 @@ If you previously used shared inventory, resolve any pending shared updates befo
 
 In **Settings**, enter your Raven API key and enable **Report deliveries to Raven Colonial**, then Save. First disable delivery reporting in SrvSurvey or any other reporting tool. Keep ColonizationNeeds running while delivering: confirmed contribution events report your commander credit and depot snapshots update the correct project's remaining requirements. This works in any cargo mode and requires no Cloudflare account. Carrier stock edits are not reported as deliveries. The feature does not import historical deliveries or create projects.
 
-The Raven status line shows pending reports/errors. If it requests review after a timeout or interruption, open **Settings > Review delivery reports**, check Raven's contribution history, then mark the report recorded if present or retry only if absent. Further contribution reporting waits until you resolve uncertain reports, avoiding an automatic duplicate retry.
+The Raven status line shows pending reports/errors. If it requests review after a timeout or interruption, open **Settings > Delivery reports**, check Raven's contribution history, then mark the report recorded if present or retry only if absent. Further contribution reporting waits until you resolve uncertain reports, avoiding an automatic duplicate retry.
 
 Start in **Manual** cargo mode. For each displayed commodity you already hold, double-click it or select it and click **Edit inventory**, choose **Set total**, enter the actual tonnes, and apply the change.
 

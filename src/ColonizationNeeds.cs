@@ -368,7 +368,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.20");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.21");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -840,21 +840,48 @@ wine|Legal Drugs|Wine";
         try
         {
             EnsureRavenReporter();
-            using (var dialog = new Form { Text = "Review Raven delivery reports", Size = new Size(580, 330), Font = Font, StartPosition = FormStartPosition.CenterParent })
+            using (var dialog = new Form { Text = "Raven delivery reports", Size = new Size(850, 450), Font = Font, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false })
             {
-                var rows = new ListBox { Left = 15, Top = 75, Width = 530, Height = 150, HorizontalScrollbar = true };
-                var reports = ravenReporter.Review.ToArray();
-                foreach (var report in reports) rows.Items.Add(report.timestamp + " · " + report.market + " · " + String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) + " · " + report.error);
-                dialog.Controls.Add(new Label { Text = "Check your contribution history on Raven Colonial first.\nMark recorded if already credited; retry only if it was not recorded.", Left = 15, Top = 15, Width = 530, Height = 50 });
+                var rows = new ListView { Left = 15, Top = 80, Width = 805, Height = 235, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
+                rows.Columns.Add("Time (local)", 140); rows.Columns.Add("Project / market", 145); rows.Columns.Add("Commodities", 330); rows.Columns.Add("Status", 165);
+                var includeDepots = new CheckBox { Text = "Include depot requirement updates", Left = 15, Top = 50, Width = 500 };
+                var hint = new Label { Text = "Recent captured deliveries, including submitted and pending reports.\nFor Needs review: check Raven history before marking recorded or retrying.", Left = 15, Top = 10, Width = 805, Height = 40 };
+                var detail = new Label { Left = 15, Top = 325, Width = 805, Height = 40 };
+                dialog.Controls.Add(hint); dialog.Controls.Add(includeDepots); dialog.Controls.Add(detail);
                 dialog.Controls.Add(rows);
-                var recorded = new Button { Text = "Mark recorded", Left = 15, Top = 240, Width = 150 };
-                var retry = new Button { Text = "Retry selected", Left = 180, Top = 240, Width = 150 };
-                var close = new Button { Text = "Close", Left = 395, Top = 240, Width = 150, DialogResult = DialogResult.Cancel };
+                var recorded = new Button { Text = "Mark recorded", Left = 15, Top = 375, Width = 150, Enabled = false };
+                var retry = new Button { Text = "Retry selected", Left = 180, Top = 375, Width = 150, Enabled = false };
+                var close = new Button { Text = "Close", Left = 670, Top = 375, Width = 150, DialogResult = DialogResult.Cancel };
+                Action populate = delegate
+                {
+                    rows.Items.Clear();
+                    foreach (var report in ravenReporter.History.Where(x => includeDepots.Checked || x.kind == "Contribution").Take(1000))
+                    {
+                        DateTimeOffset time;
+                        string when = DateTimeOffset.TryParse(report.timestamp, out time) ? time.ToLocalTime().ToString("g") : report.timestamp;
+                        string cargo = report.cargo != null ? String.Join(", ", report.cargo.Select(x => CommodityName(x.Key) + ": " + x.Value.ToString("N0") + " t")) : report.kind == "Depot" ? "Depot requirements" : report.payload != null ? String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) : "Quantity unavailable (older record)";
+                        string state = report.state == "Uncertain" ? "Needs review" : report.state == "InFlight" ? "Sending" : report.state == "Sent" ? report.outcome ?? "Submitted/recorded" : report.state;
+                        var row = new ListViewItem(when ?? ""); row.SubItems.Add(report.build ?? report.market ?? "Unknown"); row.SubItems.Add(cargo); row.SubItems.Add(state); row.Tag = report;
+                        row.ForeColor = report.state == "Sent" ? CoveredColor : report.state == "Uncertain" ? NeededColor : TextColor;
+                        rows.Items.Add(row);
+                    }
+                    detail.Text = rows.Items.Count == 0 ? "No captured deliveries. Enable reporting before delivery and keep the app running. Older journal events are not imported." : "Showing the most recent " + rows.Items.Count + " captured reports. Older successful records may lack commodity quantities.";
+                    recorded.Enabled = retry.Enabled = false;
+                };
+                rows.SelectedIndexChanged += delegate
+                {
+                    var selected = rows.SelectedItems.Count > 0 ? rows.SelectedItems[0].Tag as RavenDeliveryReporter.Report : null;
+                    recorded.Enabled = retry.Enabled = selected != null && selected.state == "Uncertain";
+                    if (selected != null) detail.Text = selected.error ?? (selected.kind == "Contribution" ? "Confirmed delivery event. " + (selected.outcome ?? selected.state) : "Depot requirement update. " + (selected.outcome ?? selected.state));
+                };
+                includeDepots.CheckedChanged += delegate { populate(); }; populate();
                 Action<bool> resolve = delegate(bool resend)
                 {
-                    if (rows.SelectedIndex < 0) return;
+                    if (rows.SelectedItems.Count == 0) return;
+                    var selected = rows.SelectedItems[0].Tag as RavenDeliveryReporter.Report;
+                    if (selected == null || selected.state != "Uncertain") return;
                     if (resend && MessageBox.Show(dialog, "Retry only after verifying this delivery is absent from Raven Colonial. If already recorded, retrying duplicates commander credit. Retry?", "Retry contribution", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-                    try { ravenReporter.Resolve(reports[rows.SelectedIndex].id, resend); ravenStatus.Text = ravenReporter.Status; dialog.Close(); }
+                    try { ravenReporter.Resolve(selected.id, resend); ravenStatus.Text = ravenReporter.Status; populate(); }
                     catch (Exception ex) { MessageBox.Show(dialog, ex.Message); }
                 };
                 recorded.Click += delegate { resolve(false); }; retry.Click += delegate { resolve(true); };
@@ -894,7 +921,7 @@ wine|Legal Drugs|Wine";
             var report = new CheckBox { Text = "Report deliveries to Raven Colonial", Checked = reportDeliveries, Left = 15, Top = 350, Width = 360 };
             dialog.Controls.Add(report);
             dialog.Controls.Add(new Label { Text = "Requires your Raven API key. Disable delivery reporting\nin SrvSurvey / other reporters to avoid duplicate credit.", Left = 15, Top = 378, Width = 360, Height = 40 });
-            var review = new Button { Text = "Review delivery reports…", Left = 15, Top = 423, Width = 230 };
+            var review = new Button { Text = "Delivery reports…", Left = 15, Top = 423, Width = 230 };
             review.Click += delegate { if (!ravenBusy) ReviewRavenReports(); }; dialog.Controls.Add(review);
             var save = new Button { Text = "Save", Left = 210, Top = 470, Width = 80 };
             var cancel = new Button { Text = "Cancel", Left = 295, Top = 470, Width = 80, DialogResult = DialogResult.Cancel };
@@ -1001,7 +1028,15 @@ wine|Legal Drugs|Wine";
     public static long DeliveryRemaining(long api, long observed, long apiTicks, long observedTicks)
     {
         if (apiTicks > 0 && apiTicks >= observedTicks) return api;
-        return observed;
+        return api < 0 ? observed : Math.Min(api, observed);
+    }
+
+    public static long DepotObservationTicks(Dictionary<string, object> project)
+    {
+        object raw, timestamp;
+        DateTimeOffset observed;
+        var depot = project.TryGetValue("colonisationConstructionDepot", out raw) ? raw as Dictionary<string, object> : null;
+        return depot != null && depot.TryGetValue("timestamp", out timestamp) && DateTimeOffset.TryParse(Convert.ToString(timestamp), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observed) ? observed.UtcTicks : 0;
     }
 
     void RecalculateDelivery()
@@ -1018,7 +1053,8 @@ wine|Legal Drugs|Wine";
             }
             Dictionary<string, long> snapshot;
             depotBalances.TryGetValue(commander.Trim().ToLowerInvariant() + "|" + market, out snapshot);
-            DateTimeOffset apiTime; long apiTicks = data.ContainsKey("timestamp") && DateTimeOffset.TryParse(Convert.ToString(data["timestamp"]), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out apiTime) ? apiTime.UtcTicks : 0;
+            // Project metadata can change when a contribution is credited, before its depot snapshot is updated.
+            long apiTicks = DepotObservationTicks(data);
             long observedTicks = 0; if (snapshot != null) snapshot.TryGetValue("__observedUtcTicks", out observedTicks);
             foreach (var pair in (Dictionary<string, object>)data["commodities"])
             {
