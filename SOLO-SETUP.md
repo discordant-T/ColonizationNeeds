@@ -65,7 +65,7 @@ Select **Colonize** before loading supplies from the carrier onto your ship. The
 
 If the load came from a station or another source instead of the carrier, the same automatic deduction can still occur. Use Manual mode for those loads, or correct the balance. If you return an undelivered load to the carrier, add it back manually. A Colonize deduction that exceeds recorded stock leaves zero and reports a shortfall for correction.
 
-In Colonize mode, **Still needed** stays yellow while deliveries are outstanding and becomes green at zero. The game's next construction-depot journal snapshot updates the matching project's remaining quantities; the combined view adds the projects together. It does not subtract carrier stock or deduct the delivery twice when Raven catches up. Keep the app running during delivery. Projects without a matching depot snapshot use Raven's reported outstanding quantities.
+In Colonize mode, **Still needed** stays bright cyan while deliveries are outstanding and becomes green at zero. The game's next construction-depot journal snapshot updates the matching project's remaining quantities; the combined view adds the projects together. It does not subtract carrier stock or deduct the delivery twice when Raven catches up. Keep the app running during delivery. Projects without a matching depot snapshot use Raven's reported outstanding quantities.
 
 ### Tracking limits
 

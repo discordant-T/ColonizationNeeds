@@ -64,6 +64,7 @@ public class ColonizationNeeds : Form
     static readonly Color TextColor = Color.FromArgb(240, 151, 35);
     static readonly Color AccentColor = Color.FromArgb(65, 39, 12);
     static readonly Color NeededColor = Color.FromArgb(255, 112, 112);
+    static readonly Color DeliveryNeededColor = Color.FromArgb(102, 224, 255);
     static readonly Color CoveredColor = Color.FromArgb(99, 191, 105);
 
     static void StyleCombo(ComboBox combo)
@@ -560,7 +561,7 @@ wine|Legal Drugs|Wine";
             row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
             row.UseItemStyleForSubItems = false;
             foreach (ListViewItem.ListViewSubItem cell in row.SubItems) cell.ForeColor = row.ForeColor;
-            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : selectedCargoMode == "Colonize" ? TextColor : NeededColor;
+            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : selectedCargoMode == "Colonize" ? DeliveryNeededColor : NeededColor;
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
