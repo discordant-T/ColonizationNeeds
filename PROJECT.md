@@ -8,6 +8,8 @@ Project layout:
 
 - src/ColonizationNeeds.cs: application source and self-tests.
 - src/JournalCargoTracker.cs: complete new journal events, commander isolation and tracking tests.
+- src/RavenDeliveryReporter.cs: optional confirmed-delivery and depot reporting with persistent state and uncertain-response review.
+- tests/Test-Reporting.ps1: mocked reporting checks run by build.ps1.
 - bin/ColonizationNeeds.exe: ready-to-run application.
 - build.ps1: rebuild and test with Windows' built-in .NET Framework compiler.
 - ColonizationNeeds.csproj: IDE/MSBuild project.

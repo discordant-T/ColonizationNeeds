@@ -18,6 +18,10 @@ Your squadron leader supplies the application, the shared server URL, and your i
 
 Keep your token private. Your own Raven key, your player token, and the leader's owner token are different credentials. Enter your credentials again on another computer; encrypted settings files are tied to the Windows user who saved them.
 
+## Optional delivery reporting
+
+Each player can enable **Settings > Report deliveries to Raven Colonial** with their own Raven API key, replacing SrvSurvey's delivery-reporting role. Disable delivery reporting in other tools first. Keep the application running during deliveries; it reports confirmed contribution events and construction-depot requirements in all cargo modes. Shared stock transactions and manual edits are not uploaded as project deliveries. No historical deliveries are imported. If a report needs review, check Raven contribution history and use **Settings > Review delivery reports** to mark it recorded or retry only if absent.
+
 ## Use the inventory
 
 - **Manual:** only your manual edits change stock.

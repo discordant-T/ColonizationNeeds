@@ -11,3 +11,5 @@ inventory-*.json
 window.json
 shared-settings.json
 shared-outbox-*.json
+raven-reports-*.json
+raven-reports-*.lock

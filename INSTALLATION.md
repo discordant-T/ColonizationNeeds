@@ -25,6 +25,8 @@ Windows with .NET Framework 4.8 is required, normally available on Windows 10/11
 
 The configured commander must also match the commander in your game journal for automatic cargo tracking. Each player configures their own Raven account. Shared inventory shares carrier stock; it does not automatically share the leader's Raven project list or Raven credentials.
 
+To replace SrvSurvey's delivery reporting, enter your own Raven API key and enable **Report deliveries to Raven Colonial** in Settings. Disable delivery reporting in other tools first. This reports confirmed contributions and depot requirements while the application is running, in any cargo mode; it does not publish carrier balances or create projects. Each member enables reporting with their own Raven key. The Raven status line shows pending reports. If an outcome is uncertain, check contribution history and resolve it under **Settings > Review delivery reports** before retrying.
+
 You can use local inventory without Cloudflare. To record existing stock, use **Edit inventory > Set total** for each displayed commodity. These saved local counts can later initialize shared stock.
 
 ## 3. Understand the credentials

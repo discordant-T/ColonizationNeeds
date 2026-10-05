@@ -212,6 +212,10 @@ wine|Legal Drugs|Wine";
     string selectedCargoMode = "Manual";
     string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
     JournalCargoTracker cargoTracker;
+    RavenDeliveryReporter ravenReporter;
+    string ravenReporterCommander;
+    bool reportDeliveries, ravenBusy;
+    readonly Label ravenStatus = new Label { Dock = DockStyle.Bottom, Height = 30, Padding = new Padding(8), Text = "Raven reporting: Off" };
     readonly Dictionary<string, Dictionary<string, long>> depotBalances = new Dictionary<string, Dictionary<string, long>>();
     Dictionary<string, object> displayedDelivery;
     readonly Dictionary<string, Dictionary<string, object>> deliveryProjects = new Dictionary<string, Dictionary<string, object>>();
@@ -299,7 +303,7 @@ wine|Legal Drugs|Wine";
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
         project.Visible = false;
-        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(header);
+        Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(ravenStatus); Controls.Add(header);
         pin.CheckedChanged += delegate { TopMost = pin.Checked; };
         refresh.Click += async delegate { await LoadProject(); };
         configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
@@ -322,7 +326,7 @@ wine|Legal Drugs|Wine";
             }
         };
         cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { cargoStatus.Text = "Cargo tracking paused: " + ex.Message; } } };
-        sharedTimer.Tick += async delegate { if (!editingInventory) await SyncShared(); };
+        sharedTimer.Tick += async delegate { if (!editingInventory) { await SyncShared(); await SyncRaven(); } };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
         list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
@@ -336,6 +340,7 @@ wine|Legal Drugs|Wine";
             {
                 var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(settings));
                 commander = saved["commander"];
+                reportDeliveries = saved.ContainsKey("reportDeliveries") && saved["reportDeliveries"] == "true";
                 if (!String.IsNullOrEmpty(saved["key"])) apiKey = Unprotect(saved["key"]);
             }
         }
@@ -360,10 +365,10 @@ wine|Legal Drugs|Wine";
         }
         if (!preview) Shown += async delegate { timer.Start(); sharedTimer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await SyncShared(); await LoadProject(); } };
         if (!preview) { RestoreWindowLocation(); FormClosing += delegate { SaveWindowLocation(); }; }
-        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); client.Dispose(); };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.19");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.20");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -482,6 +487,12 @@ wine|Legal Drugs|Wine";
             if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
             RecalculateDelivery(); changed = true;
             cargoStatus.Text = "Colonize: depot requirements updated · " + DateTime.Now.ToString("HH:mm:ss");
+        }, delegate(string identity, string system, string market, Dictionary<string, object> entry)
+        {
+            if (!reportDeliveries) return;
+            EnsureRavenReporter();
+            ravenReporter.Capture(identity, system, market, entry);
+            ravenStatus.Text = ravenReporter.Status;
         });
         if (changed) RenderCommodities();
         if (selectedCargoMode != "Manual" && !String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase)) cargoStatus.Text = "Cargo tracking: waiting for commander " + commander + ".";
@@ -794,9 +805,71 @@ wine|Legal Drugs|Wine";
         }
         finally { editingInventory=wasEditing; }
     }
+    void EnsureRavenReporter()
+    {
+        if (ravenReporter != null && ravenReporterCommander == commander) return;
+        if (ravenReporter != null) ravenReporter.Dispose();
+        ravenReporter = null;
+        ravenReporter = new RavenDeliveryReporter(Path.GetDirectoryName(settings), commander);
+        ravenReporterCommander = commander;
+    }
+    async Task SyncRaven()
+    {
+        if (ravenBusy || !reportDeliveries || editingInventory || String.IsNullOrWhiteSpace(commander)) { if (!reportDeliveries) ravenStatus.Text = "Raven reporting: Off"; return; }
+        ravenBusy = true;
+        try
+        {
+            EnsureRavenReporter();
+            await ravenReporter.Sync(client, ApiBase, apiKey, async delegate(string system, string market)
+            {
+                foreach (var pair in deliveryProjects)
+                    if (pair.Value.ContainsKey("marketId") && Convert.ToString(pair.Value["marketId"]) == market && market.Length > 0) return pair.Key;
+                if (!Regex.IsMatch(system, @"^\d+$") || !Regex.IsMatch(market, @"^\d+$")) return null;
+                var data = ReadJson(await GetJson("system/" + system + "/" + market)) as Dictionary<string, object>;
+                if (data == null) return null;
+                foreach (var wrapper in new[] { "project", "data", "result", "value" }) if (!data.ContainsKey("buildId") && data.ContainsKey(wrapper) && data[wrapper] is Dictionary<string, object>) data = (Dictionary<string, object>)data[wrapper];
+                return data.ContainsKey("buildId") ? BuildId(Convert.ToString(data["buildId"])) : null;
+            });
+            ravenStatus.Text = ravenReporter.Status;
+        }
+        catch (Exception ex) { ravenStatus.Text = "Raven reporting paused: " + ex.Message; }
+        finally { ravenBusy = false; }
+    }
+    void ReviewRavenReports()
+    {
+        try
+        {
+            EnsureRavenReporter();
+            using (var dialog = new Form { Text = "Review Raven delivery reports", Size = new Size(580, 330), Font = Font, StartPosition = FormStartPosition.CenterParent })
+            {
+                var rows = new ListBox { Left = 15, Top = 75, Width = 530, Height = 150, HorizontalScrollbar = true };
+                var reports = ravenReporter.Review.ToArray();
+                foreach (var report in reports) rows.Items.Add(report.timestamp + " · " + report.market + " · " + String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) + " · " + report.error);
+                dialog.Controls.Add(new Label { Text = "Check your contribution history on Raven Colonial first.\nMark recorded if already credited; retry only if it was not recorded.", Left = 15, Top = 15, Width = 530, Height = 50 });
+                dialog.Controls.Add(rows);
+                var recorded = new Button { Text = "Mark recorded", Left = 15, Top = 240, Width = 150 };
+                var retry = new Button { Text = "Retry selected", Left = 180, Top = 240, Width = 150 };
+                var close = new Button { Text = "Close", Left = 395, Top = 240, Width = 150, DialogResult = DialogResult.Cancel };
+                Action<bool> resolve = delegate(bool resend)
+                {
+                    if (rows.SelectedIndex < 0) return;
+                    if (resend && MessageBox.Show(dialog, "Retry only after verifying this delivery is absent from Raven Colonial. If already recorded, retrying duplicates commander credit. Retry?", "Retry contribution", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    try { ravenReporter.Resolve(reports[rows.SelectedIndex].id, resend); ravenStatus.Text = ravenReporter.Status; dialog.Close(); }
+                    catch (Exception ex) { MessageBox.Show(dialog, ex.Message); }
+                };
+                recorded.Click += delegate { resolve(false); }; retry.Click += delegate { resolve(true); };
+                dialog.Controls.Add(recorded); dialog.Controls.Add(retry); dialog.Controls.Add(close);
+                ApplyDialogPalette(dialog); dialog.ShowDialog(this);
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message); }
+    }
     bool Configure()
     {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 455), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        bool previousEditing = editingInventory; editingInventory = true;
+        try
+        {
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 555), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -818,29 +891,38 @@ wine|Legal Drugs|Wine";
             dialog.FormClosed += delegate { if (dialog.DialogResult != DialogResult.OK) { windowOpacity = originalOpacity; Opacity = windowOpacity / 100.0; } };
             var sharedButton = new Button { Text = "Shared inventory…", Left = 15, Top = 310, Width = 180 };
             sharedButton.Click += delegate { ConfigureShared(); }; dialog.Controls.Add(sharedButton);
-            var save = new Button { Text = "Save", Left = 210, Top = 370, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 370, Width = 80, DialogResult = DialogResult.Cancel };
+            var report = new CheckBox { Text = "Report deliveries to Raven Colonial", Checked = reportDeliveries, Left = 15, Top = 350, Width = 360 };
+            dialog.Controls.Add(report);
+            dialog.Controls.Add(new Label { Text = "Requires your Raven API key. Disable delivery reporting\nin SrvSurvey / other reporters to avoid duplicate credit.", Left = 15, Top = 378, Width = 360, Height = 40 });
+            var review = new Button { Text = "Review delivery reports…", Left = 15, Top = 423, Width = 230 };
+            review.Click += delegate { if (!ravenBusy) ReviewRavenReports(); }; dialog.Controls.Add(review);
+            var save = new Button { Text = "Save", Left = 210, Top = 470, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 470, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
                 if (String.IsNullOrWhiteSpace(name.Text)) { MessageBox.Show(dialog, "Enter your commander name as shown on Raven Colonial."); return; }
+                if (ravenBusy) { MessageBox.Show(dialog, "A Raven report is finishing. Try Save again shortly."); return; }
+                if (report.Checked && String.IsNullOrWhiteSpace(key.Text)) { MessageBox.Show(dialog, "Enter your Raven Colonial API key to enable delivery reporting."); return; }
                 if (key.Text.Contains("\r") || key.Text.Contains("\n")) { MessageBox.Show(dialog, "The API key must be a single line."); return; }
                 try
                 {
-                    var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) } };
+                    var saved = new Dictionary<string, string> { { "commander", name.Text.Trim() }, { "key", key.Text.Length == 0 ? "" : Protect(key.Text.Trim()) }, { "reportDeliveries", report.Checked ? "true" : "false" } };
                     Directory.CreateDirectory(Path.GetDirectoryName(settings));
                     File.WriteAllText(settings, new JavaScriptSerializer().Serialize(saved));
                     int previousOpacity = windowOpacity;
                     windowOpacity = opacitySlider.Value;
                     try { SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); } catch { windowOpacity = previousOpacity; throw; }
                     journalFolder = folder.Text.Trim();
-                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); dialog.DialogResult = DialogResult.OK;
+                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); reportDeliveries = report.Checked; dialog.DialogResult = DialogResult.OK;
                 }
                 catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
             };
             ApplyDialogPalette(dialog);
             return dialog.ShowDialog(this) == DialogResult.OK;
         }
+        }
+        finally { editingInventory = previousEditing; }
     }
 
     async Task<string> GetJson(string path)
