@@ -31,7 +31,7 @@ Start in **Manual** cargo mode. For each displayed commodity you already hold, d
 | --- | --- |
 | Required | Outstanding quantity reported by Raven Colonial for the selected projects |
 | Carrier stock | Your locally recorded stock for that commodity |
-| Still needed | Required minus carrier stock, with a minimum of zero |
+| Still needed | In Manual/Collect, Required minus carrier stock, with a minimum of zero. In Colonize, the outstanding quantity still to deliver, without subtracting stock |
 
 Required reflects outstanding requirements, rather than the original construction cost including completed deliveries. The footer totals the displayed commodities. Inventory is shared between your project views: the combined view subtracts your stock once from combined requirements. Changing the project selection does not create another stock inventory.
 
@@ -64,6 +64,8 @@ If you cancel the deposit, sell or lose that cargo instead, remove the credited 
 Select **Colonize** before loading supplies from the carrier onto your ship. The application deducts the loaded quantity immediately. Delivering it does not cause another inventory deduction. Raven Colonial's requirements update separately through your existing Raven reporting workflow and the application's refresh.
 
 If the load came from a station or another source instead of the carrier, the same automatic deduction can still occur. Use Manual mode for those loads, or correct the balance. If you return an undelivered load to the carrier, add it back manually. A Colonize deduction that exceeds recorded stock leaves zero and reports a shortfall for correction.
+
+In Colonize mode, **Still needed** stays yellow while deliveries are outstanding and becomes green at zero. The game's next construction-depot journal snapshot updates the matching project's remaining quantities; the combined view adds the projects together. It does not subtract carrier stock or deduct the delivery twice when Raven catches up. Keep the app running during delivery. Projects without a matching depot snapshot use Raven's reported outstanding quantities.
 
 ### Tracking limits
 

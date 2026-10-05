@@ -211,6 +211,9 @@ wine|Legal Drugs|Wine";
     string selectedCargoMode = "Manual";
     string journalFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
     JournalCargoTracker cargoTracker;
+    readonly Dictionary<string, Dictionary<string, long>> depotBalances = new Dictionary<string, Dictionary<string, long>>();
+    Dictionary<string, object> displayedDelivery;
+    readonly Dictionary<string, Dictionary<string, object>> deliveryProjects = new Dictionary<string, Dictionary<string, object>>();
     bool changingMode, inventoryReady = true;
     readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
     bool busy;
@@ -309,6 +312,7 @@ wine|Legal Drugs|Wine";
                 SaveTrackingSettings(next, journalFolder);
                 selectedCargoMode = next;
                 ResetCargoTracker();
+                RenderCommodities();
             }
             catch (Exception ex)
             {
@@ -358,7 +362,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.18");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.19");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -465,6 +469,18 @@ wine|Legal Drugs|Wine";
             SaveInventory(updated);
             changed = true;
             cargoStatus.Text = selectedCargoMode + ": " + (selectedCargoMode == "Collect" ? "+" : "−") + quantity.ToString("N0") + " t · " + DateTime.Now.ToString("HH:mm:ss") + (shortage ? " · Stock shortfall; correct manually" : "");
+        }, delegate(string market, string timestamp, Dictionary<string, long> remaining)
+        {
+            if (selectedCargoMode != "Colonize") return;
+            DateTimeOffset observedAt;
+            remaining["__observedUtcTicks"] = DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observedAt) ? observedAt.UtcTicks : DateTime.UtcNow.Ticks;
+            depotBalances[commander.Trim().ToLowerInvariant() + "|" + market] = remaining;
+            Directory.CreateDirectory(Path.GetDirectoryName(settings));
+            string path = InventoryPath() + ".deliveries.json";
+            File.WriteAllText(path + ".tmp", new JavaScriptSerializer().Serialize(depotBalances));
+            if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
+            RecalculateDelivery(); changed = true;
+            cargoStatus.Text = "Colonize: depot requirements updated · " + DateTime.Now.ToString("HH:mm:ss");
         });
         if (changed) RenderCommodities();
         if (selectedCargoMode != "Manual" && !String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase)) cargoStatus.Text = "Cargo tracking: waiting for commander " + commander + ".";
@@ -528,20 +544,23 @@ wine|Legal Drugs|Wine";
             long required = Convert.ToInt64(item.Value);
             long held; inventory.TryGetValue(item.Key, out held);
             bool uncertain = displayedUnknown.Contains(item.Key);
-            if (required == 0 && held == 0 && !uncertain) continue;
-            long remaining = Remaining(required, held);
+            bool requiredUncertain = uncertain;
+            if (required == 0 && held == 0 && !uncertain && selectedCargoMode != "Colonize") continue;
+            long remaining = selectedCargoMode == "Colonize" ? (displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) ? Convert.ToInt64(displayedDelivery[item.Key]) : required) : Remaining(required, held);
+            if (selectedCargoMode == "Colonize" && displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) && Convert.ToInt64(displayedDelivery[item.Key]) >= 0) uncertain = false;
+            if (remaining < 0) { remaining = 0; uncertain = true; }
             var row = new ListViewItem(CommodityName(item.Key)); row.ToolTipText = row.Text;
             string category = CommodityCategory(item.Key);
             if (!groups.ContainsKey(category)) groups[category] = new ListViewGroup(category, HorizontalAlignment.Left);
             row.Group = groups[category];
             row.Tag = item.Key;
-            row.SubItems.Add(uncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
+            row.SubItems.Add(requiredUncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
             row.SubItems.Add(held.ToString("N0"));
             row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
             row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
             row.UseItemStyleForSubItems = false;
             foreach (ListViewItem.ListViewSubItem cell in row.SubItems) cell.ForeColor = row.ForeColor;
-            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : NeededColor;
+            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : selectedCargoMode == "Colonize" ? TextColor : NeededColor;
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
@@ -896,6 +915,38 @@ wine|Legal Drugs|Wine";
         return obj;
     }
 
+    public static long DeliveryRemaining(long api, long observed, long apiTicks, long observedTicks)
+    {
+        if (apiTicks > 0 && apiTicks >= observedTicks) return api;
+        return observed;
+    }
+
+    void RecalculateDelivery()
+    {
+        displayedDelivery = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var data in deliveryProjects.Values)
+        {
+            string market = data.ContainsKey("marketId") ? Convert.ToString(data["marketId"]) : "";
+            object nested;
+            if (market.Length == 0 && data.TryGetValue("colonisationConstructionDepot", out nested) && nested is Dictionary<string, object>)
+            {
+                var depot = (Dictionary<string, object>)nested;
+                if (depot.ContainsKey("MarketID")) market = Convert.ToString(depot["MarketID"]);
+            }
+            Dictionary<string, long> snapshot;
+            depotBalances.TryGetValue(commander.Trim().ToLowerInvariant() + "|" + market, out snapshot);
+            DateTimeOffset apiTime; long apiTicks = data.ContainsKey("timestamp") && DateTimeOffset.TryParse(Convert.ToString(data["timestamp"]), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out apiTime) ? apiTime.UtcTicks : 0;
+            long observedTicks = 0; if (snapshot != null) snapshot.TryGetValue("__observedUtcTicks", out observedTicks);
+            foreach (var pair in (Dictionary<string, object>)data["commodities"])
+            {
+                long api = Convert.ToInt64(pair.Value), observed;
+                long amount = snapshot != null && snapshot.TryGetValue(JournalCargoTracker.Canonical(pair.Key), out observed) ? DeliveryRemaining(api, observed, apiTicks, observedTicks) : api;
+                long previous = displayedDelivery.ContainsKey(pair.Key) ? Convert.ToInt64(displayedDelivery[pair.Key]) : 0;
+                displayedDelivery[pair.Key] = previous < 0 || amount < 0 ? -1L : checked(previous + amount);
+            }
+        }
+    }
+
     async Task LoadProject()
     {
         if (busy) return;
@@ -924,11 +975,14 @@ wine|Legal Drugs|Wine";
             var cargo = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
             var unknownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int projectCount = 0;
+            var fetchedProjects = new Dictionary<string, Dictionary<string, object>>();
             foreach (var p in active)
             {
                 var build = Convert.ToString(p["buildId"]);
                 if (id.Length > 0 && build != id) continue;
                 var data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
+                if (!data.ContainsKey("marketId") && p.ContainsKey("marketId")) data["marketId"] = p["marketId"];
+                fetchedProjects[build] = data;
                 projectCount++;
                 foreach (var pair in (Dictionary<string, object>)data["commodities"])
                 {
@@ -938,6 +992,14 @@ wine|Legal Drugs|Wine";
                     else cargo[pair.Key] = checked((cargo.ContainsKey(pair.Key) ? Convert.ToInt64(cargo[pair.Key]) : 0L) + value);
                 }
             }
+                deliveryProjects.Clear(); foreach (var pair in fetchedProjects) deliveryProjects[pair.Key] = pair.Value;
+                string deliveryPath = InventoryPath() + ".deliveries.json";
+                if (File.Exists(deliveryPath))
+                {
+                    var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(deliveryPath));
+                    foreach (var pair in saved) depotBalances[pair.Key] = pair.Value;
+                }
+                RecalculateDelivery();
                 displayedCargo = cargo; displayedUnknown = unknownKeys; RenderCommodities(); shownId = id;
                 Text = "ColonizationNeeds — " + commander;
                 status.Text = projectCount + " project(s) · Updated " + DateTime.Now.ToString("HH:mm:ss");
@@ -953,6 +1015,7 @@ wine|Legal Drugs|Wine";
         if (args.Length > 0 && args[0] == "--self-test")
         {
             JournalCargoTracker.RunTests();
+            if (DeliveryRemaining(100, 60, 10, 20) != 60 || DeliveryRemaining(60, 60, 30, 20) != 60 || DeliveryRemaining(80, 60, 30, 20) != 80 || DeliveryRemaining(100, 0, 10, 20) != 0) throw new Exception("Delivery refresh reconciliation failed");
             if (ApplyCargoMode(40, 15, "Collect") != 55 || ApplyCargoMode(40, 15, "Colonize") != 25 || ApplyCargoMode(10, 15, "Colonize") != 0 || ApplyCargoMode(40, 15, "Manual") != 40) throw new Exception("Cargo mode arithmetic failed");
             if (BuildId("https://ravencolonial.com/#build=abc-123") != "abc-123") throw new Exception("Link parsing failed");
             var parsed = ParseProject("{\"project\":{\"commodities\":{\"steel\":123,\"water\":0,\"copper\":-1}}}");

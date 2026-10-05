@@ -127,6 +127,18 @@ public sealed class JournalCargoTracker
             File.AppendAllText(second, "}\n{\"event\":\"MarketBuy\",\"Type\":\"steel\",\"Count\":4}\n");
             tracker.Poll("Test", add); tracker.Poll("Test", add);
             if (total != 23) throw new Exception("Restart or initial partial cargo replayed");
+            long depotCalls = 0;
+            Action<string, string, Dictionary<string, long>> receive = delegate(string market, string timestamp, Dictionary<string, long> remaining)
+            {
+                if (market != "123" || remaining["steel"] != 60 || remaining["water"] != 0) throw new Exception("Depot balance parsing failed");
+                depotCalls++;
+            };
+            File.AppendAllText(second, "{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":123,\"ResourcesRequired\":[{\"Name\":\"$steel_name;\",\"RequiredAmount\":100,\"ProvidedAmount\":40},{\"Name\":\"water\",\"RequiredAmount\":10,\"ProvidedAmount\":15}]}\n");
+            tracker.Poll("Test", add, receive); tracker.Poll("Test", add, receive);
+            if (depotCalls != 1 || total != 23) throw new Exception("Depot snapshot replayed or affected stock");
+            File.AppendAllText(second, "{\"event\":\"LoadGame\",\"Commander\":\"Other\"}\n{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":123,\"ResourcesRequired\":[{\"Name\":\"steel\",\"RequiredAmount\":100,\"ProvidedAmount\":100}]}\n");
+            tracker.Poll("Test", add, receive);
+            if (depotCalls != 1) throw new Exception("Other commander depot processed");
         }
         finally
         {
@@ -145,6 +157,26 @@ public sealed class JournalCargoTracker
         return value;
     }
     public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply)
+    {
+        Poll(expectedCommander, apply, null);
+    }
+    public static Dictionary<string, long> DepotRemaining(Dictionary<string, object> data)
+    {
+        var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        object resources;
+        if (Text(data, "event") != "ColonisationConstructionDepot" || !data.TryGetValue("ResourcesRequired", out resources)) return result;
+        foreach (var resource in (object[])resources)
+        {
+            var row = resource as Dictionary<string, object>;
+            string key = Canonical(Text(row, "Name"));
+            if (key.Length == 0 || row == null) continue;
+            if (!row.ContainsKey("RequiredAmount") || !row.ContainsKey("ProvidedAmount")) throw new ArgumentException("Incomplete construction-depot quantities.");
+            long required = Count(row, "RequiredAmount", 0), provided = Count(row, "ProvidedAmount", 0);
+            result[key] = Math.Max(0, required - provided);
+        }
+        return result;
+    }
+    public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply, Action<string, string, Dictionary<string, long>> depot)
     {
         if (!Directory.Exists(folder)) throw new IOException("Journal folder not found. Choose it in Settings.");
         foreach (var file in Directory.GetFiles(folder, "Journal.*.log").OrderBy(File.GetLastWriteTimeUtc))
@@ -172,6 +204,12 @@ public sealed class JournalCargoTracker
                         currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
                         if (String.Equals(cursor.Commander, expectedCommander.Trim(), StringComparison.OrdinalIgnoreCase))
                         {
+                            if (depot != null && Text(data, "event") == "ColonisationConstructionDepot")
+                            {
+                                string market = Text(data, "MarketID");
+                                var remaining = DepotRemaining(data);
+                                if (market.Length > 0 && remaining.Count > 0) depot(market, Text(data, "timestamp"), remaining);
+                            }
                             var gained = Acquisitions(data, cursor.Vessel);
                             if (gained.Count > 0) apply(gained); // Commit inventory before acknowledging this line.
                         }

@@ -6,6 +6,8 @@ Preserve read-only Raven Colonial API behavior, saved commander-specific invento
 
 Preserve Manual, Collect and Colonize modes. Collect credits newly loaded ship cargo; Colonize debits it from local carrier stock. Do not replay existing cargo, historical journals, snapshots, or unloading events. Ignore other commanders and SRV acquisitions. Manual editing remains available in every mode. Commit inventory before advancing the journal cursor, and keep rendering outside that transaction. Automatic tracking only covers events while the app is running; startup and mode changes establish a fresh baseline.
 
+In Colonize, Still needed is outstanding delivery need, not stock shortage. Read new construction-depot snapshots as absolute RequiredAmount minus ProvidedAmount, match by project MarketID, save per commander, and prefer newer Raven timestamps. Do not subtract deliveries a second time or debit carrier stock on delivery. Keep yellow positive/unknown delivery text and green visible zero rows; Manual/Collect retain red positive shortages. Depot snapshots update delivery requirements only, not inventory acquisition accounting.
+
 Check the README for behavior, API references, and multi-computer limitations. For API changes, verify the current RavenColonialWeb API host and headers instead of assuming the public website hosts its API. Keep changes in this project folder; older RavenNeeds files outside it are legacy snapshots.
 
 
