@@ -4,6 +4,8 @@ Start with [the solo player guide](SOLO-SETUP.md) to use local inventory with a 
 
 A small native Windows application for Elite Dangerous colonization commodity requirements.
 
+Version 1.23 verifies the returned project ID, system and MarketID, reads back the project and planned site, explicitly links your commander, and checks the active-project list before reporting success. It selects the newly linked project and shows its Raven link. Re-running the action on an existing project links it to your commander without creating a duplicate.
+
 Version 1.22 adds **Settings > Link planned construction…**. Start the planned construction in Elite Dangerous, dock at its construction site, and open Construction Services. Save your Raven API key first, then use the linking action and select the matching planned site from the current system. It creates the active project with the existing plan's systemSiteId, the real MarketID, and current journal commodity requirements. An existing project is checked before creation; ambiguous plans require your selection. Linking is an explicit action independent of the delivery-reporting checkbox. Enable delivery reporting to update subsequent deliveries. Startup may read the current docking/depot context for this action without replaying historical cargo or contributions. If a request times out, check Raven before retrying; the app does not retry creation automatically.
 
 Version 1.21 also preserves confirmed delivery balances when a Raven refresh carries newer general project metadata but stale commodity counts. Only an actual newer construction-depot observation can supersede a saved game observation; otherwise the smaller known remaining quantity is used.
