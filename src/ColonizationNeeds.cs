@@ -368,7 +368,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.22");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.23");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -847,8 +847,31 @@ wine|Legal Drugs|Wine";
         if (dock.ContainsKey("StarPos")) payload["starPos"] = dock["StarPos"];
         else throw new ArgumentException("System coordinates are unavailable. Re-enter the system, then dock and open Construction Services.");
         if (plan.ContainsKey("bodyNum")) payload["bodyNum"] = plan["bodyNum"];
+        payload["commanders"] = new Dictionary<string, object> { { architect, new string[0] } };
         object faction; if (dock.TryGetValue("StationFaction", out faction) && faction is Dictionary<string, object>) payload["factionName"] = ((Dictionary<string, object>)faction)["Name"];
         return payload;
+    }
+    public static string ConfirmLinkedProject(string json, string system, string market)
+    {
+        var project = ParseProject(json);
+        object id, actualSystem, actualMarket;
+        if (!project.TryGetValue("buildId", out id) || String.IsNullOrWhiteSpace(Convert.ToString(id)) || !project.TryGetValue("systemAddress", out actualSystem) || Convert.ToString(actualSystem) != system || !project.TryGetValue("marketId", out actualMarket) || Convert.ToString(actualMarket) != market) throw new Exception("Raven did not return a confirmed project for this construction site. Check Raven before retrying.");
+        return BuildId(Convert.ToString(id));
+    }
+    async Task ShowLinkedProject(string id)
+    {
+        using (var request = new HttpRequestMessage(HttpMethod.Put, ApiBase + "project/" + Uri.EscapeDataString(id) + "/link/" + Uri.EscapeDataString(commander)))
+        {
+            request.Headers.Add("rcc-key",apiKey); request.Headers.Add("rcc-cmdr0",Convert.ToBase64String(Encoding.UTF8.GetBytes(commander)));
+            using (var response=await client.SendAsync(request)) if (!response.IsSuccessStatusCode) throw new Exception("Project " + id + " exists, but commander linking failed: HTTP " + (int)response.StatusCode + ". The project was not recreated.");
+        }
+        var active=ParseActive(await GetJson("cmdr/" + Uri.EscapeDataString(commander) + "/active"));
+        if (!active.Any(x=>Convert.ToString(x["buildId"])==id)) throw new Exception("Project " + id + " exists, but Raven has not included it in your active projects yet. Try Refresh shortly; do not recreate it.");
+        await LoadProject();
+        updatingSelection=true;
+        try { for(int i=1;i<selection.Items.Count;i++) if(((ProjectChoice)selection.Items[i]).Id==id) selection.SelectedIndex=i; }
+        finally { updatingSelection=false; }
+        await LoadProject();
     }
     async Task LinkPlannedConstruction()
     {
@@ -864,7 +887,7 @@ wine|Legal Drugs|Wine";
             // A timeout is not proof that no project exists. Only a definite 404 permits creation.
             using (var response = await client.GetAsync(ApiBase + "system/" + system + "/" + market))
             {
-                if (response.IsSuccessStatusCode) { MessageBox.Show(this, "This construction site already has a Raven project. Refresh the project list to see it."); return; }
+                if (response.IsSuccessStatusCode) { string existing=ConfirmLinkedProject(await response.Content.ReadAsStringAsync(),system,market); await ShowLinkedProject(existing); MessageBox.Show(this, "Existing Raven project " + existing + " is linked to your commander and selected. No duplicate was created."); return; }
                 if (response.StatusCode != HttpStatusCode.NotFound) throw new Exception("Could not check the existing project: HTTP " + (int)response.StatusCode);
             }
             var raw = ReadJson(await GetJson("v2/system/" + system + "/sites")) as object[];
@@ -883,6 +906,7 @@ wine|Legal Drugs|Wine";
                 if (choice.SelectedIndex < 0) throw new Exception("Select the planned site to link.");
                 if (!Object.ReferenceEquals(dock,cargoTracker.DockedSite) || !Object.ReferenceEquals(depot,cargoTracker.CurrentDepot)) throw new Exception("Your docking context changed. Try again at the construction site.");
                 var payload = PlannedProjectPayload(plans[choice.SelectedIndex], dock, depot, commander);
+                string createdId;
                 using (var request = new HttpRequestMessage(HttpMethod.Put, ApiBase + "project/"))
                 {
                     request.Headers.Add("rcc-key",apiKey); request.Headers.Add("rcc-cmdr0",Convert.ToBase64String(Encoding.UTF8.GetBytes(commander)));
@@ -890,10 +914,16 @@ wine|Legal Drugs|Wine";
                     using (var response=await client.SendAsync(request))
                     {
                         if (!response.IsSuccessStatusCode) throw new Exception("Raven did not accept the link: HTTP " + (int)response.StatusCode + ". Check Raven before trying again.");
+                        createdId=ConfirmLinkedProject(await response.Content.ReadAsStringAsync(),system,market);
                     }
                 }
-                await LoadProject();
-                MessageBox.Show(this,"The planned construction is linked. Raven now has its MarketID and current commodity requirements. Enable delivery reporting to keep subsequent deliveries updated.");
+                string verifiedId=ConfirmLinkedProject(await GetJson("system/"+system+"/"+market),system,market);
+                if(verifiedId!=createdId) throw new Exception("Raven returned a different project on verification. Check Raven before retrying.");
+                var sites=ReadJson(await GetJson("v2/system/"+system+"/sites")) as object[];
+                string planId=Convert.ToString(plans[choice.SelectedIndex]["id"]);
+                if(sites==null || !sites.OfType<Dictionary<string,object>>().Any(x=>x.ContainsKey("id")&&Convert.ToString(x["id"])==planId&&x.ContainsKey("buildId")&&Convert.ToString(x["buildId"])==createdId&&x.ContainsKey("status")&&Convert.ToString(x["status"])=="build")) throw new Exception("Project "+createdId+" exists, but the planned site's build link could not be confirmed. Check the Raven plan before retrying.");
+                await ShowLinkedProject(createdId);
+                MessageBox.Show(this,"Confirmed Raven project " + createdId + " is linked to the plan and your commander, and is selected.\nhttps://ravencolonial.com/#build=" + createdId);
             }
         }
         catch (Exception ex) { MessageBox.Show(this,ex.Message,"Link planned construction"); }
