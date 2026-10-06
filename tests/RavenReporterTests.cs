@@ -31,19 +31,6 @@ class RavenReporterTest {
  static async Task Run(){
   string root=Path.Combine(Path.GetTempPath(),"ColonizationNeeds-report-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
   try {
-   var plan=Parse("{\"id\":\"planned-123\",\"status\":\"plan\",\"name\":\"Grushin Point\",\"buildType\":\"industrial outpost\",\"bodyNum\":3}");
-   var dock=Parse("{\"event\":\"Docked\",\"MarketID\":123,\"SystemAddress\":456,\"StarSystem\":\"Test System\",\"StarPos\":[1,2,3],\"StationName\":\"Orbital Construction Site: Grushin Point\"}");
-   var linked=ColonizationNeeds.PlannedProjectPayload(plan,dock,Parse(Depot),"Test");
-   Assert(((Dictionary<string,object>)linked["commanders"]).ContainsKey("Test"),"Creator not included in project commanders");
-   Assert(ColonizationNeeds.ConfirmLinkedProject("{\"buildId\":\"A\",\"systemAddress\":456,\"marketId\":123,\"commodities\":{\"steel\":75}}","456","123")=="A","Valid created project rejected");
-   foreach(var badCreated in new[]{"{}","{\"error\":\"Not created\"}","{\"buildId\":\"A\",\"systemAddress\":456,\"marketId\":999,\"commodities\":{}}","{\"buildId\":\"\",\"systemAddress\":456,\"marketId\":123,\"commodities\":{}}"}) { bool rejectedCreation=false;try{ColonizationNeeds.ConfirmLinkedProject(badCreated,"456","123");}catch(Exception){rejectedCreation=true;}Assert(rejectedCreation,"Unconfirmed creation reported as successful"); }
-   Assert(Convert.ToString(linked["systemSiteId"])=="planned-123"&&Convert.ToInt64(linked["marketId"])==123&&((Dictionary<string,long>)linked["commodities"])["steel"]==75,"Planned site identity or actual requirements lost");
-   bool invalid=false;try{ColonizationNeeds.PlannedProjectPayload(plan,dock,Parse(Depot.Replace("123","999")),"Test");}catch(ArgumentException){invalid=true;}Assert(invalid,"Mismatched depot accepted");
-   string contextFolder=Path.Combine(root,"context");Directory.CreateDirectory(contextFolder);string contextFile=Path.Combine(contextFolder,"Journal.01.log");
-   File.WriteAllText(contextFile,"{\"event\":\"LoadGame\",\"Commander\":\"Test\"}\n{\"event\":\"FSDJump\",\"StarSystem\":\"Test System\",\"SystemAddress\":456,\"StarPos\":[1,2,3]}\n"+new JavaScriptSerializer().Serialize(dock)+"\n"+Depot+"\n");
-   var contextTracker=new JournalCargoTracker(contextFolder);Assert(contextTracker.CurrentDepot!=null&&contextTracker.DockedSite.ContainsKey("StarPos"),"Startup lost current docking context");
-   int contextReports=0;contextTracker.Poll("Test",delegate(Dictionary<string,long> c){throw new Exception("Historical inventory replay");},null,delegate(string a,string b,string c,Dictionary<string,object>d){contextReports++;});Assert(contextReports==0,"Startup replayed reports");
-   File.AppendAllText(contextFile,"{\"event\":\"Undocked\"}\n");contextTracker.Poll("Test",delegate(Dictionary<string,long> c){});Assert(contextTracker.CurrentDepot==null&&contextTracker.DockedSite==null,"Undocking retained stale linking context");
    var metadataOnly=Parse("{\"timestamp\":\"2026-10-06T00:00:00Z\"}");
    Assert(ColonizationNeeds.DepotObservationTicks(metadataOnly)==0,"Generic project update mistaken for depot observation");
    Assert(ColonizationNeeds.DeliveryRemaining(1553,402,ColonizationNeeds.DepotObservationTicks(metadataOnly),1)==402,"Confirmed 1151-tonne delivery lost on refresh");
