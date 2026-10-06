@@ -14,6 +14,24 @@ public sealed class JournalCargoTracker
     string currentCommander = "", currentVessel = "Ship";
     string currentMarket = "", currentSystem = "";
     public string CurrentCommander { get { return currentCommander; } }
+    public Dictionary<string, object> DockedSite { get; private set; }
+    public Dictionary<string, object> CurrentDepot { get; private set; }
+    Dictionary<string, object> location = new Dictionary<string, object>();
+    void ObserveSite(Dictionary<string, object> data)
+    {
+        string evt = Text(data, "event");
+        if (evt == "LoadGame" || evt == "Undocked" || evt == "FSDJump" || evt == "Shutdown") { DockedSite = null; CurrentDepot = null; }
+        if (evt == "LoadGame") location.Clear();
+        if (data == null) return;
+        foreach (var key in new[] { "SystemAddress", "StarSystem", "StarPos", "Body", "BodyID" }) if (data.ContainsKey(key)) location[key] = data[key];
+        if (evt == "Docked" || (evt == "Location" && data.ContainsKey("Docked") && Convert.ToBoolean(data["Docked"])))
+        {
+            DockedSite = new Dictionary<string, object>(location);
+            foreach (var pair in data) DockedSite[pair.Key] = pair.Value;
+            CurrentDepot = null;
+        }
+        if (evt == "ColonisationConstructionDepot" && DockedSite != null && Text(data, "MarketID") == Text(DockedSite, "MarketID")) CurrentDepot = data;
+    }
     public JournalCargoTracker(string folder)
     {
         this.folder = folder;
@@ -36,7 +54,7 @@ public sealed class JournalCargoTracker
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
-                    try { UpdateContext(cursor, Parse(line)); } catch (ArgumentException) { }
+                    try { var data = Parse(line); UpdateContext(cursor, data); ObserveSite(data); } catch (ArgumentException) { }
                 }
             }
             currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
@@ -210,6 +228,7 @@ public sealed class JournalCargoTracker
                         string text = Encoding.UTF8.GetString(line.ToArray()).Trim(); line.SetLength(0);
                         var data = text.Length > 0 ? Parse(text) : null;
                         UpdateContext(cursor, data);
+                        ObserveSite(data);
                         currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
                         currentMarket = cursor.Market; currentSystem = cursor.System;
                         if (String.Equals(cursor.Commander, expectedCommander.Trim(), StringComparison.OrdinalIgnoreCase))
