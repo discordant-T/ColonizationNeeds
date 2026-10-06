@@ -368,7 +368,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.21");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.22");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -835,6 +835,70 @@ wine|Legal Drugs|Wine";
         catch (Exception ex) { ravenStatus.Text = "Raven reporting paused: " + ex.Message; }
         finally { ravenBusy = false; }
     }
+    public static Dictionary<string, object> PlannedProjectPayload(Dictionary<string, object> plan, Dictionary<string, object> dock, Dictionary<string, object> depot, string architect)
+    {
+        if (Convert.ToString(plan["status"]) != "plan" || String.IsNullOrWhiteSpace(Convert.ToString(plan["id"])) || String.IsNullOrWhiteSpace(Convert.ToString(plan["buildType"]))) throw new ArgumentException("Choose a planned site with a construction type.");
+        if (Convert.ToString(dock["MarketID"]) != Convert.ToString(depot["MarketID"])) throw new ArgumentException("The depot does not match the docked site.");
+        if ((depot.ContainsKey("ConstructionComplete") && Convert.ToBoolean(depot["ConstructionComplete"])) || (depot.ContainsKey("ConstructionFailed") && Convert.ToBoolean(depot["ConstructionFailed"]))) throw new ArgumentException("This construction is completed or failed.");
+        var remaining = JournalCargoTracker.DepotRemaining(depot);
+        if (remaining.Count == 0) throw new ArgumentException("Open Construction Services to read the requirements.");
+        long maximum = ((object[])depot["ResourcesRequired"]).Sum(x => Convert.ToInt64(((Dictionary<string, object>)x)["RequiredAmount"]));
+        var payload = new Dictionary<string, object> { { "systemSiteId", plan["id"] }, { "buildType", Convert.ToString(plan["buildType"]).ToLowerInvariant() }, { "buildName", plan["name"] }, { "architectName", architect }, { "marketId", dock["MarketID"] }, { "systemAddress", dock["SystemAddress"] }, { "systemName", dock["StarSystem"] }, { "commodities", remaining }, { "maxNeed", maximum }, { "colonisationConstructionDepot", depot }, { "isPrimaryPort", Convert.ToString(dock["StationName"]).StartsWith("System Colonisation Ship", StringComparison.OrdinalIgnoreCase) } };
+        if (dock.ContainsKey("StarPos")) payload["starPos"] = dock["StarPos"];
+        else throw new ArgumentException("System coordinates are unavailable. Re-enter the system, then dock and open Construction Services.");
+        if (plan.ContainsKey("bodyNum")) payload["bodyNum"] = plan["bodyNum"];
+        object faction; if (dock.TryGetValue("StationFaction", out faction) && faction is Dictionary<string, object>) payload["factionName"] = ((Dictionary<string, object>)faction)["Name"];
+        return payload;
+    }
+    async Task LinkPlannedConstruction()
+    {
+        if (ravenBusy) { MessageBox.Show(this, "A Raven report is finishing. Try again shortly."); return; }
+        ravenBusy = true;
+        try
+        {
+            if (String.IsNullOrWhiteSpace(apiKey)) throw new Exception("Save your Raven API key in Settings first.");
+            if (cargoTracker == null) ResetCargoTracker();
+            var dock = cargoTracker.DockedSite; var depot = cargoTracker.CurrentDepot;
+            if (!String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase) || dock == null || depot == null) throw new Exception("Dock at the construction site and open Construction Services, then try again. Keep ColonizationNeeds running.");
+            string system = Convert.ToString(dock["SystemAddress"]), market = Convert.ToString(dock["MarketID"]);
+            // A timeout is not proof that no project exists. Only a definite 404 permits creation.
+            using (var response = await client.GetAsync(ApiBase + "system/" + system + "/" + market))
+            {
+                if (response.IsSuccessStatusCode) { MessageBox.Show(this, "This construction site already has a Raven project. Refresh the project list to see it."); return; }
+                if (response.StatusCode != HttpStatusCode.NotFound) throw new Exception("Could not check the existing project: HTTP " + (int)response.StatusCode);
+            }
+            var raw = ReadJson(await GetJson("v2/system/" + system + "/sites")) as object[];
+            var plans = (raw ?? new object[0]).OfType<Dictionary<string, object>>().Where(x => x.ContainsKey("status") && Convert.ToString(x["status"]) == "plan").ToArray();
+            if (plans.Length == 0) throw new Exception("Raven has no planned sites in this system.");
+            using (var dialog = new Form { Text = "Link planned construction", Size = new Size(500,235), Font = Font, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+            {
+                var label = new Label { Left=15, Top=15, Width=455, Height=45, Text=Convert.ToString(dock["StarSystem"]) + "\n" + Convert.ToString(dock["StationName"]) };
+                var choice = new ComboBox { Left=15, Top=70, Width=455, DropDownStyle=ComboBoxStyle.DropDownList };
+                foreach (var plan in plans) choice.Items.Add(Convert.ToString(plan["name"]) + " (" + Convert.ToString(plan["buildType"]) + ")");
+                if (plans.Length == 1) choice.SelectedIndex=0;
+                var link = new Button { Text="Link and start tracking", Left=15, Top=135, Width=200, DialogResult=DialogResult.OK };
+                var cancel = new Button { Text="Cancel", Left=370, Top=135, Width=100, DialogResult=DialogResult.Cancel };
+                dialog.Controls.AddRange(new Control[] { label, choice, link, cancel }); dialog.CancelButton=cancel; ApplyDialogPalette(dialog);
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (choice.SelectedIndex < 0) throw new Exception("Select the planned site to link.");
+                if (!Object.ReferenceEquals(dock,cargoTracker.DockedSite) || !Object.ReferenceEquals(depot,cargoTracker.CurrentDepot)) throw new Exception("Your docking context changed. Try again at the construction site.");
+                var payload = PlannedProjectPayload(plans[choice.SelectedIndex], dock, depot, commander);
+                using (var request = new HttpRequestMessage(HttpMethod.Put, ApiBase + "project/"))
+                {
+                    request.Headers.Add("rcc-key",apiKey); request.Headers.Add("rcc-cmdr0",Convert.ToBase64String(Encoding.UTF8.GetBytes(commander)));
+                    request.Content=new StringContent(new JavaScriptSerializer().Serialize(payload),Encoding.UTF8,"application/json");
+                    using (var response=await client.SendAsync(request))
+                    {
+                        if (!response.IsSuccessStatusCode) throw new Exception("Raven did not accept the link: HTTP " + (int)response.StatusCode + ". Check Raven before trying again.");
+                    }
+                }
+                await LoadProject();
+                MessageBox.Show(this,"The planned construction is linked. Raven now has its MarketID and current commodity requirements. Enable delivery reporting to keep subsequent deliveries updated.");
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(this,ex.Message,"Link planned construction"); }
+        finally { ravenBusy=false; }
+    }
     void ReviewRavenReports()
     {
         try
@@ -923,8 +987,10 @@ wine|Legal Drugs|Wine";
             dialog.Controls.Add(new Label { Text = "Requires your Raven API key. Disable delivery reporting\nin SrvSurvey / other reporters to avoid duplicate credit.", Left = 15, Top = 378, Width = 360, Height = 40 });
             var review = new Button { Text = "Delivery reports…", Left = 15, Top = 423, Width = 230 };
             review.Click += delegate { if (!ravenBusy) ReviewRavenReports(); }; dialog.Controls.Add(review);
-            var save = new Button { Text = "Save", Left = 210, Top = 470, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 470, Width = 80, DialogResult = DialogResult.Cancel };
+            var linkPlan = new Button { Text = "Link planned construction…", Left = 15, Top = 451, Width = 230 };
+            linkPlan.Click += async delegate { await LinkPlannedConstruction(); }; dialog.Controls.Add(linkPlan);
+            var save = new Button { Text = "Save", Left = 210, Top = 490, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 490, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
