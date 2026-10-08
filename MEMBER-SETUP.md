@@ -1,5 +1,7 @@
 # ColonizationNeeds member setup
 
+Current stable release: **1.25**. See [release notes and upgrading](RELEASE-NOTES.md) and the [Raven construction workflow](RAVEN-WORKFLOW.md).
+
 Your squadron leader supplies the application, the shared server URL, and your individual player access token. You do not need Cloudflare, PowerShell, or the leader's owner token.
 
 ## Install
@@ -32,6 +34,14 @@ Choose the mode before loading cargo and keep the application running. Existing 
 
 Double-click a commodity or click **Edit inventory** to **Add** or **Remove** tonnes. Admins can also **Set total**. Ask an admin to reconcile the actual carrier stock when needed. Do not use **Sync local to shared** to combine your personal stock: that admin action replaces the group's totals.
 
-Required comes from your selected Raven projects. Carrier stock comes from the shared group. In Manual/Collect, Still needed is the remaining shortage after that stock is subtracted. In Colonize, it shows what still needs delivering, bright cyan while outstanding and green at zero. The next construction-depot journal snapshot updates your matching project, while Raven refreshes provide updates from other players. Deliveries do not deduct carrier stock a second time. Local mode is a separate inventory and does not update the group.
+Required comes from your selected Raven projects: outstanding quantities in Manual/Collect, fixed original totals in Colonize. Original totals can be recovered read-only from your commander/site journals without replaying deliveries or inventory changes. Carrier stock comes from the shared group. In Manual/Collect, Still needed is the remaining shortage after that stock is subtracted. In Colonize, it shows what still needs delivering, bright cyan while outstanding and green at zero. The next construction-depot journal snapshot updates your matching project, while Raven refreshes provide updates from other players. Deliveries do not deduct carrier stock a second time. Local mode is a separate inventory and does not update the group.
 
 If a shared update remains pending, read the status/error and let it finish before switching accounts or computers. If connection fails, check your server URL and token with the leader. You do not need to set up another backend.
+
+## Start and complete Raven constructions (version 1.25)
+
+Save your own Raven key, dock at the new site and open Construction Services. Use **Settings > Start planned construction** to select the matching planned name/body and exact type, then **Start / verify** and refresh. All cargo modes work. The reporting checkbox is not required for this explicit setup; Raven permissions are separate from Cloudflare admin/player roles. Resolve type variants ending in `?` in Raven first. Setup creates or reuses the project, links your commander and marks the plan Building. Agree with the squadron who starts each site; other commanders/carriers can be linked in Raven afterward.
+
+Enable **Report deliveries to Raven Colonial** for subsequent contribution, depot and completion reporting. Keep the app running for the game's completion event; zero remaining cargo alone is insufficient. Completion records appear in Delivery reports. Pending completion resumes with a server check after interruption, and final credits must finish or be reviewed first. Historical completion events are not backfilled. Disable overlapping reporting in SrvSurvey/BGS-Tally/other tools to avoid duplicate credits.
+
+This release requires no Cloudflare backend or schema update. Close the app before replacing the executable; saved settings and inventory are outside its folder. Full setup and recovery steps are in [the Raven workflow](RAVEN-WORKFLOW.md).

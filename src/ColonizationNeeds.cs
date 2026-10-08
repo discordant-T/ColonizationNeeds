@@ -13,6 +13,10 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
+[assembly: System.Reflection.AssemblyVersion("1.25.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.25.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.25 stable")]
+
 public class ColonizationNeeds : Form
 {
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -218,6 +222,8 @@ wine|Legal Drugs|Wine";
     readonly Label ravenStatus = new Label { Dock = DockStyle.Bottom, Height = 30, Padding = new Padding(8), Text = "Raven reporting: Off" };
     readonly Dictionary<string, Dictionary<string, long>> depotBalances = new Dictionary<string, Dictionary<string, long>>();
     Dictionary<string, object> displayedDelivery;
+    Dictionary<string, long> displayedRequired;
+    Dictionary<string, Dictionary<string, long>> projectRequirements = new Dictionary<string, Dictionary<string, long>>();
     readonly Dictionary<string, Dictionary<string, object>> deliveryProjects = new Dictionary<string, Dictionary<string, object>>();
     bool changingMode, inventoryReady = true;
     readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
@@ -368,7 +374,7 @@ wine|Legal Drugs|Wine";
         FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.21");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.25");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
@@ -489,6 +495,22 @@ wine|Legal Drugs|Wine";
             cargoStatus.Text = "Colonize: depot requirements updated · " + DateTime.Now.ToString("HH:mm:ss");
         }, delegate(string identity, string system, string market, Dictionary<string, object> entry)
         {
+            if (Convert.ToString(entry["event"]) == "ColonisationConstructionDepot")
+            {
+                Dictionary<string, long> snapshot;
+                string snapshotKey = commander.Trim().ToLowerInvariant() + "|" + market;
+                if (!depotBalances.TryGetValue(snapshotKey, out snapshot)) snapshot = new Dictionary<string, long>();
+                foreach (var pair in OriginalRequirements(entry, null, null))
+                    snapshot["__required:" + pair.Key] = pair.Value;
+                depotBalances[snapshotKey] = snapshot;
+                Directory.CreateDirectory(Path.GetDirectoryName(settings));
+                string path = InventoryPath() + ".deliveries.json";
+                File.WriteAllText(path + ".tmp", new JavaScriptSerializer().Serialize(depotBalances));
+                if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
+                RecalculateDelivery(); changed = true;
+            }
+            if (RavenConstruction.Text(entry, "event") == "ColonisationConstructionDepot" && !deliveryProjects.Values.Any(x => RavenConstruction.Text(x, "marketId") == market))
+                status.Text = "Construction detected · Settings → Start planned construction";
             if (!reportDeliveries) return;
             EnsureRavenReporter();
             ravenReporter.Capture(identity, system, market, entry);
@@ -548,7 +570,7 @@ wine|Legal Drugs|Wine";
     {
         if (displayedCargo == null) return;
         long totalRequired = 0, totalHeld = 0, totalRemaining = 0;
-        int unknown = 0;
+        int unknown = 0, unknownRequired = 0;
         var rows = new List<ListViewItem>();
         var groups = new Dictionary<string, ListViewGroup>();
         foreach (var item in displayedCargo.OrderBy(x => CommodityCategory(x.Key) == "Other" ? "~" : CommodityCategory(x.Key), StringComparer.OrdinalIgnoreCase).ThenBy(x => CommodityName(x.Key), StringComparer.OrdinalIgnoreCase))
@@ -557,6 +579,12 @@ wine|Legal Drugs|Wine";
             long held; inventory.TryGetValue(item.Key, out held);
             bool uncertain = displayedUnknown.Contains(item.Key);
             bool requiredUncertain = uncertain;
+            if (selectedCargoMode == "Colonize")
+            {
+                long original;
+                requiredUncertain = displayedRequired == null || !displayedRequired.TryGetValue(JournalCargoTracker.Canonical(item.Key), out original) || original < 0;
+                required = requiredUncertain ? 0 : displayedRequired[JournalCargoTracker.Canonical(item.Key)];
+            }
             if (required == 0 && held == 0 && !uncertain && selectedCargoMode != "Colonize") continue;
             long remaining = selectedCargoMode == "Colonize" ? (displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) ? Convert.ToInt64(displayedDelivery[item.Key]) : required) : Remaining(required, held);
             if (selectedCargoMode == "Colonize" && displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) && Convert.ToInt64(displayedDelivery[item.Key]) >= 0) uncertain = false;
@@ -576,6 +604,7 @@ wine|Legal Drugs|Wine";
             rows.Add(row);
             totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
             if (uncertain) unknown++;
+            if (requiredUncertain) unknownRequired++;
         }
         string selected = list.SelectedItems.Count > 0 ? Convert.ToString(list.SelectedItems[0].Tag) : null;
         // Keep the same commodity at the same vertical offset, even if rows above it change.
@@ -613,7 +642,7 @@ wine|Legal Drugs|Wine";
             SendMessage(list.Handle, 0x1014, IntPtr.Zero, new IntPtr(restored.Bounds.Top - anchorY)); // LVM_SCROLL, pixel offset.
         }
         string suffix = unknown > 0 ? " + unknown" : "";
-        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + suffix + " | Stock " + totalHeld.ToString("N0") + " | Needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click to Add, Remove, or Set total.";
+        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + (unknownRequired > 0 ? " + ?" : "") + " | Stock " + totalHeld.ToString("N0") + " | Needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click to Add, Remove, or Set total.";
         editInventory.Enabled = !busy;
     }
 
@@ -855,11 +884,11 @@ wine|Legal Drugs|Wine";
                 Action populate = delegate
                 {
                     rows.Items.Clear();
-                    foreach (var report in ravenReporter.History.Where(x => includeDepots.Checked || x.kind == "Contribution").Take(1000))
+                    foreach (var report in ravenReporter.History.Where(x => includeDepots.Checked || x.kind != "Depot").Take(1000))
                     {
                         DateTimeOffset time;
                         string when = DateTimeOffset.TryParse(report.timestamp, out time) ? time.ToLocalTime().ToString("g") : report.timestamp;
-                        string cargo = report.cargo != null ? String.Join(", ", report.cargo.Select(x => CommodityName(x.Key) + ": " + x.Value.ToString("N0") + " t")) : report.kind == "Depot" ? "Depot requirements" : report.payload != null ? String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) : "Quantity unavailable (older record)";
+                        string cargo = report.kind == "Completion" ? "Construction completion" : report.cargo != null ? String.Join(", ", report.cargo.Select(x => CommodityName(x.Key) + ": " + x.Value.ToString("N0") + " t")) : report.kind == "Depot" ? "Depot requirements" : report.payload != null ? String.Join(", ", report.payload.Select(x => CommodityName(x.Key) + ": " + Convert.ToInt64(x.Value).ToString("N0") + " t")) : "Quantity unavailable (older record)";
                         string state = report.state == "Uncertain" ? "Needs review" : report.state == "InFlight" ? "Sending" : report.state == "Sent" ? report.outcome ?? "Submitted/recorded" : report.state;
                         var row = new ListViewItem(when ?? ""); row.SubItems.Add(report.build ?? report.market ?? "Unknown"); row.SubItems.Add(cargo); row.SubItems.Add(state); row.Tag = report;
                         row.ForeColor = report.state == "Sent" ? CoveredColor : report.state == "Uncertain" ? NeededColor : TextColor;
@@ -872,7 +901,7 @@ wine|Legal Drugs|Wine";
                 {
                     var selected = rows.SelectedItems.Count > 0 ? rows.SelectedItems[0].Tag as RavenDeliveryReporter.Report : null;
                     recorded.Enabled = retry.Enabled = selected != null && selected.state == "Uncertain";
-                    if (selected != null) detail.Text = selected.error ?? (selected.kind == "Contribution" ? "Confirmed delivery event. " + (selected.outcome ?? selected.state) : "Depot requirement update. " + (selected.outcome ?? selected.state));
+                    if (selected != null) detail.Text = selected.error ?? ((selected.kind == "Completion" ? "Game-confirmed construction completion. " : selected.kind == "Contribution" ? "Confirmed delivery event. " : "Depot requirement update. ") + (selected.outcome ?? selected.state));
                 };
                 includeDepots.CheckedChanged += delegate { populate(); }; populate();
                 Action<bool> resolve = delegate(bool resend)
@@ -891,12 +920,56 @@ wine|Legal Drugs|Wine";
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message); }
     }
+    bool constructionBusy;
+    async Task StartConstruction(Form owner)
+    {
+        if (constructionBusy || ravenBusy) return;
+        if (String.IsNullOrWhiteSpace(apiKey) || String.IsNullOrWhiteSpace(commander)) { MessageBox.Show(owner, "Save your Raven commander name and API key in Settings first."); return; }
+        constructionBusy = true;
+        try
+        {
+            var dock = RavenConstruction.ReadDock(journalFolder, commander);
+            var service = new RavenConstruction(client, ApiBase, apiKey, commander);
+            var sites = await service.Sites(dock);
+            var candidates = sites.Where(x => RavenConstruction.Text(x, "status") == "plan" || (RavenConstruction.Text(x, "status") == "build" && RavenConstruction.Text(x, "marketId") == RavenConstruction.Text(dock.Location, "MarketID"))).ToArray();
+            using (var dialog = new Form { Text = "Start planned construction", Size = new Size(650, 440), Font = Font, StartPosition = FormStartPosition.CenterParent, MinimizeBox = false, MaximizeBox = false, FormBorderStyle = FormBorderStyle.FixedDialog })
+            {
+                var info = new Label { Left = 15, Top = 15, Width = 605, Height = 65, Text = RavenConstruction.Text(dock.Location, "StationName") + "\n" + RavenConstruction.Text(dock.Location, "StarSystem") + " · Market " + RavenConstruction.Text(dock.Location, "MarketID") + "\nChoose the matching planned site. Check its body and exact type before starting." };
+                var list = new ListBox { Left = 15, Top = 85, Width = 605, Height = 195 };
+                foreach (var site in candidates) list.Items.Add(RavenConstruction.Text(site, "name") + " · Body " + RavenConstruction.Text(site, "bodyNum") + " · " + RavenConstruction.Text(site, "buildType"));
+                var message = new Label { Left = 15, Top = 290, Width = 605, Height = 45, Text = candidates.Length == 0 ? "No available planned sites in Raven for this system. Create a plan on Raven first." : "Creates or reuses the project, links your commander, and updates this plan.\nNo deliveries or carrier inventory counts are added by this operation." };
+                var start = new Button { Left = 385, Top = 345, Width = 130, Text = "Start / verify", Enabled = false };
+                var close = new Button { Left = 525, Top = 345, Width = 95, Text = "Close", DialogResult = DialogResult.Cancel };
+                list.SelectedIndexChanged += delegate { start.Enabled = list.SelectedIndex >= 0; };
+                start.Click += async delegate
+                {
+                    start.Enabled = close.Enabled = list.Enabled = false;
+                    try
+                    {
+                        var current = RavenConstruction.ReadDock(journalFolder, commander);
+                        if (RavenConstruction.Text(current.Location, "MarketID") != RavenConstruction.Text(dock.Location, "MarketID") || RavenConstruction.Text(current.Location, "SystemAddress") != RavenConstruction.Text(dock.Location, "SystemAddress")) throw new InvalidOperationException("Docked location changed. Reopen setup.");
+                        message.Text = "Creating and verifying Raven project…";
+                        string id = await service.Start(current, candidates[list.SelectedIndex]);
+                        message.Text = "Verified: project linked, commander linked, plan building.\n" + id;
+                        ravenStatus.Text = "Raven construction verified · Refresh to load the project";
+                        list.Enabled = false;
+                    }
+                    catch (Exception ex) { message.Text = "Not verified. Check Raven before retrying."; MessageBox.Show(dialog, ex.Message); list.Enabled = true; start.Enabled = true; }
+                    finally { close.Enabled = true; }
+                };
+                dialog.FormClosing += delegate(object sender, FormClosingEventArgs e) { if (!close.Enabled) e.Cancel = true; };
+                dialog.Controls.AddRange(new Control[] { info, list, message, start, close }); ApplyDialogPalette(dialog); dialog.ShowDialog(owner);
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(owner, ex.Message); }
+        finally { constructionBusy = false; }
+    }
     bool Configure()
     {
         bool previousEditing = editingInventory; editingInventory = true;
         try
         {
-        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 555), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
+        using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 600), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
             var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
@@ -923,13 +996,15 @@ wine|Legal Drugs|Wine";
             dialog.Controls.Add(new Label { Text = "Requires your Raven API key. Disable delivery reporting\nin SrvSurvey / other reporters to avoid duplicate credit.", Left = 15, Top = 378, Width = 360, Height = 40 });
             var review = new Button { Text = "Delivery reports…", Left = 15, Top = 423, Width = 230 };
             review.Click += delegate { if (!ravenBusy) ReviewRavenReports(); }; dialog.Controls.Add(review);
-            var save = new Button { Text = "Save", Left = 210, Top = 470, Width = 80 };
-            var cancel = new Button { Text = "Cancel", Left = 295, Top = 470, Width = 80, DialogResult = DialogResult.Cancel };
+            var construction = new Button { Text = "Start planned construction…", Left = 15, Top = 465, Width = 270 };
+            construction.Click += async delegate { await StartConstruction(dialog); }; dialog.Controls.Add(construction);
+            var save = new Button { Text = "Save", Left = 210, Top = 515, Width = 80 };
+            var cancel = new Button { Text = "Cancel", Left = 295, Top = 515, Width = 80, DialogResult = DialogResult.Cancel };
             dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
             save.Click += delegate
             {
                 if (String.IsNullOrWhiteSpace(name.Text)) { MessageBox.Show(dialog, "Enter your commander name as shown on Raven Colonial."); return; }
-                if (ravenBusy) { MessageBox.Show(dialog, "A Raven report is finishing. Try Save again shortly."); return; }
+                if (ravenBusy || constructionBusy) { MessageBox.Show(dialog, "A Raven operation is finishing. Try Save again shortly."); return; }
                 if (report.Checked && String.IsNullOrWhiteSpace(key.Text)) { MessageBox.Show(dialog, "Enter your Raven Colonial API key to enable delivery reporting."); return; }
                 if (key.Text.Contains("\r") || key.Text.Contains("\n")) { MessageBox.Show(dialog, "The API key must be a single line."); return; }
                 try
@@ -1039,11 +1114,95 @@ wine|Legal Drugs|Wine";
         return depot != null && depot.TryGetValue("timestamp", out timestamp) && DateTimeOffset.TryParse(Convert.ToString(timestamp), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observed) ? observed.UtcTicks : 0;
     }
 
+    public static Dictionary<string, Dictionary<string, long>> ReadHistoricalRequirements(string folder, string expectedCommander, IEnumerable<string> markets)
+    {
+        var wanted = new HashSet<string>(markets);
+        var result = new Dictionary<string, Dictionary<string, long>>();
+        if (!Directory.Exists(folder) || wanted.Count == 0) return result;
+        foreach (string file in Directory.GetFiles(folder, "Journal.*.log").OrderByDescending(File.GetLastWriteTimeUtc))
+        {
+            string journalCommander = "";
+            var inFile = new Dictionary<string, Dictionary<string, long>>();
+            using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    Dictionary<string, object> entry;
+                    try { entry = new JavaScriptSerializer().DeserializeObject(line.TrimStart('\uFEFF')) as Dictionary<string, object>; }
+                    catch (ArgumentException) { continue; } catch (InvalidOperationException) { continue; }
+                    object value;
+                    if (entry == null || !entry.TryGetValue("event", out value)) continue;
+                    string evt = Convert.ToString(value);
+                    if (evt == "LoadGame" && entry.TryGetValue("Commander", out value)) journalCommander = Convert.ToString(value);
+                    if (evt == "Commander" && entry.TryGetValue("Name", out value)) journalCommander = Convert.ToString(value);
+                    if (evt != "ColonisationConstructionDepot" || !String.Equals(journalCommander, expectedCommander, StringComparison.OrdinalIgnoreCase) || !entry.TryGetValue("MarketID", out value)) continue;
+                    string market = Convert.ToString(value);
+                    if (!wanted.Contains(market) || result.ContainsKey(market)) continue;
+                    var totals = OriginalRequirements(entry, null, null);
+                    if (totals.Count > 0) inFile[market] = totals;
+                }
+            }
+            foreach (var pair in inFile) result[pair.Key] = pair.Value;
+            if (wanted.All(result.ContainsKey)) break;
+        }
+        return result;
+    }
+    readonly HashSet<string> historicalRequirementsChecked = new HashSet<string>();
+    async Task RecoverOriginalRequirements()
+    {
+        var wanted = new List<string>();
+        foreach (var project in deliveryProjects)
+        {
+            string key = commander.Trim().ToLowerInvariant() + "|" + project.Key;
+            string market = project.Value.ContainsKey("marketId") ? Convert.ToString(project.Value["marketId"]) : "";
+            Dictionary<string, long> totals;
+            var cargo = (Dictionary<string, object>)project.Value["commodities"];
+            if (market.Length > 0 && (!projectRequirements.TryGetValue(key, out totals) || cargo.Keys.Any(x => !totals.ContainsKey(JournalCargoTracker.Canonical(x)))) && historicalRequirementsChecked.Add(journalFolder + "|" + commander + "|" + market)) wanted.Add(market);
+        }
+        if (wanted.Count == 0) return;
+        status.Text = "Reading original construction totals from game journals…";
+        string folder = journalFolder, name = commander;
+        var recovered = await Task.Run(() => ReadHistoricalRequirements(folder, name, wanted));
+        foreach (var project in deliveryProjects)
+        {
+            string market = project.Value.ContainsKey("marketId") ? Convert.ToString(project.Value["marketId"]) : "";
+            Dictionary<string, long> totals;
+            if (recovered.TryGetValue(market, out totals))
+                projectRequirements[commander.Trim().ToLowerInvariant() + "|" + project.Key] = totals;
+        }
+    }
+    public static Dictionary<string, long> OriginalRequirements(Dictionary<string, object> depot, Dictionary<string, long> cached, Dictionary<string, long> local)
+    {
+        var result = cached == null ? new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase) : new Dictionary<string, long>(cached, StringComparer.OrdinalIgnoreCase);
+        object raw;
+        if (depot != null && depot.TryGetValue("ResourcesRequired", out raw) && raw is object[])
+            foreach (var item in (object[])raw)
+            {
+                var row = item as Dictionary<string, object>;
+                if (row == null || !row.ContainsKey("Name") || !row.ContainsKey("RequiredAmount")) continue;
+                string key = JournalCargoTracker.Canonical(Convert.ToString(row["Name"]));
+                long value = Convert.ToInt64(row["RequiredAmount"]);
+                if (value >= 0 && key.Length > 0) result[key] = value;
+            }
+        if (local != null) foreach (var pair in local)
+            if (pair.Key.StartsWith("__required:", StringComparison.Ordinal) && pair.Value >= 0) result[pair.Key.Substring(11)] = pair.Value;
+        return result;
+    }
     void RecalculateDelivery()
     {
-        displayedDelivery = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
-        foreach (var data in deliveryProjects.Values)
+        string savedRequirements = InventoryPath() + ".requirements.json";
+        if (File.Exists(savedRequirements))
         {
+            var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(savedRequirements));
+            foreach (var pair in saved) if (!projectRequirements.ContainsKey(pair.Key)) projectRequirements[pair.Key] = pair.Value;
+        }
+        displayedDelivery = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        displayedRequired = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        foreach (var project in deliveryProjects)
+        {
+            var data = project.Value;
             string market = data.ContainsKey("marketId") ? Convert.ToString(data["marketId"]) : "";
             object nested;
             if (market.Length == 0 && data.TryGetValue("colonisationConstructionDepot", out nested) && nested is Dictionary<string, object>)
@@ -1053,17 +1212,30 @@ wine|Legal Drugs|Wine";
             }
             Dictionary<string, long> snapshot;
             depotBalances.TryGetValue(commander.Trim().ToLowerInvariant() + "|" + market, out snapshot);
+            Dictionary<string, long> cached;
+            projectRequirements.TryGetValue(commander.Trim().ToLowerInvariant() + "|" + project.Key, out cached);
+            object fullDepot;
+            var original = OriginalRequirements(data.TryGetValue("colonisationConstructionDepot", out fullDepot) ? fullDepot as Dictionary<string, object> : null, cached, snapshot);
+            projectRequirements[commander.Trim().ToLowerInvariant() + "|" + project.Key] = original;
             // Project metadata can change when a contribution is credited, before its depot snapshot is updated.
             long apiTicks = DepotObservationTicks(data);
             long observedTicks = 0; if (snapshot != null) snapshot.TryGetValue("__observedUtcTicks", out observedTicks);
             foreach (var pair in (Dictionary<string, object>)data["commodities"])
             {
+                string canonical = JournalCargoTracker.Canonical(pair.Key);
+                long full, total;
+                displayedRequired.TryGetValue(canonical, out total);
+                displayedRequired[canonical] = total < 0 || !original.TryGetValue(canonical, out full) ? -1 : checked(total + full);
                 long api = Convert.ToInt64(pair.Value), observed;
                 long amount = snapshot != null && snapshot.TryGetValue(JournalCargoTracker.Canonical(pair.Key), out observed) ? DeliveryRemaining(api, observed, apiTicks, observedTicks) : api;
                 long previous = displayedDelivery.ContainsKey(pair.Key) ? Convert.ToInt64(displayedDelivery[pair.Key]) : 0;
                 displayedDelivery[pair.Key] = previous < 0 || amount < 0 ? -1L : checked(previous + amount);
             }
         }
+        Directory.CreateDirectory(Path.GetDirectoryName(settings));
+        string requirementsPath = InventoryPath() + ".requirements.json";
+        File.WriteAllText(requirementsPath + ".tmp", new JavaScriptSerializer().Serialize(projectRequirements));
+        if (File.Exists(requirementsPath)) File.Replace(requirementsPath + ".tmp", requirementsPath, null); else File.Move(requirementsPath + ".tmp", requirementsPath);
     }
 
     async Task LoadProject()
@@ -1118,6 +1290,9 @@ wine|Legal Drugs|Wine";
                     var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(deliveryPath));
                     foreach (var pair in saved) depotBalances[pair.Key] = pair.Value;
                 }
+                string requirementsPath = InventoryPath() + ".requirements.json";
+                projectRequirements = File.Exists(requirementsPath) ? new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(requirementsPath)) : new Dictionary<string, Dictionary<string, long>>();
+                await RecoverOriginalRequirements();
                 RecalculateDelivery();
                 displayedCargo = cargo; displayedUnknown = unknownKeys; RenderCommodities(); shownId = id;
                 Text = "ColonizationNeeds — " + commander;
@@ -1134,6 +1309,25 @@ wine|Legal Drugs|Wine";
         if (args.Length > 0 && args[0] == "--self-test")
         {
             JournalCargoTracker.RunTests();
+            var fullDepot = ReadJson("{\"ResourcesRequired\":[{\"Name\":\"$liquidoxygen_name;\",\"RequiredAmount\":1553,\"ProvidedAmount\":1151}]}") as Dictionary<string, object>;
+            var original = OriginalRequirements(fullDepot, null, null);
+            if (original["liquidoxygen"] != 1553) throw new Exception("Required incorrectly uses remaining amount");
+            fullDepot["ResourcesRequired"] = ((Dictionary<string, object>)ReadJson("{\"ResourcesRequired\":[{\"Name\":\"$liquidoxygen_name;\",\"RequiredAmount\":1553,\"ProvidedAmount\":1553}]}"))["ResourcesRequired"];
+            if (OriginalRequirements(fullDepot, original, null)["liquidoxygen"] != 1553 || OriginalRequirements(null, original, null)["liquidoxygen"] != 1553) throw new Exception("Required changed after delivery or refresh");
+            if (OriginalRequirements(null, null, null).Count != 0) throw new Exception("Unknown total fabricated");
+            var localTotals = new Dictionary<string, long> { { "__required:liquidoxygen", 1553 }, { "liquidoxygen", 0 } };
+            if (OriginalRequirements(null, null, localTotals)["liquidoxygen"] != 1553) throw new Exception("Local required total lost");
+            string historicalFolder = Path.Combine(Path.GetTempPath(), "ColonizationNeeds-requirements-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(historicalFolder);
+            try
+            {
+                string history = "{\"event\":\"LoadGame\",\"Commander\":\"Test\"}\n{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":456,\"ResourcesRequired\":[{\"Name\":\"$liquidoxygen_name;\",\"RequiredAmount\":1553,\"ProvidedAmount\":1151}]}\n{\"event\":\"LoadGame\",\"Commander\":\"Other\"}\n{\"event\":\"ColonisationConstructionDepot\",\"MarketID\":456,\"ResourcesRequired\":[{\"Name\":\"$liquidoxygen_name;\",\"RequiredAmount\":99,\"ProvidedAmount\":0}]}\n{partial";
+                File.WriteAllText(Path.Combine(historicalFolder, "Journal.test.log"), history);
+                var recovered = ReadHistoricalRequirements(historicalFolder, "Test", new[] { "456" });
+                if (recovered["456"]["liquidoxygen"] != 1553 || ReadHistoricalRequirements(historicalFolder, "Test", new[] { "999" }).Count != 0) throw new Exception("Historical original total identity/isolation failed");
+            }
+            finally { Directory.Delete(historicalFolder, true); }
+            RavenConstruction.RunTests();
             if (DeliveryRemaining(100, 60, 10, 20) != 60 || DeliveryRemaining(60, 60, 30, 20) != 60 || DeliveryRemaining(80, 60, 30, 20) != 80 || DeliveryRemaining(100, 0, 10, 20) != 0) throw new Exception("Delivery refresh reconciliation failed");
             if (ApplyCargoMode(40, 15, "Collect") != 55 || ApplyCargoMode(40, 15, "Colonize") != 25 || ApplyCargoMode(10, 15, "Colonize") != 0 || ApplyCargoMode(40, 15, "Manual") != 40) throw new Exception("Cargo mode arithmetic failed");
             if (BuildId("https://ravencolonial.com/#build=abc-123") != "abc-123") throw new Exception("Link parsing failed");
