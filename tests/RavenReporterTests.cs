@@ -9,10 +9,15 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 class RavenReporterTest {
  class Transport:HttpMessageHandler {
-  public int posts, patches, gets; public bool timeout, rejected, newer; public string postBody, patchBody;
+  public int posts, patches, gets, completions; public bool timeout, rejected, newer, completed, completionTimeout; public string postBody, patchBody;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation) {
    if(!request.Headers.Contains("rcc-key") || request.Headers.GetValues("rcc-key").Single()!="test-key") throw new Exception("Auth missing");
-   if(request.Method==HttpMethod.Get) { gets++; return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"buildId\":\"A\",\"commodities\":{\"steel\":100},\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\",\"colonisationConstructionDepot\":{\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\"}}")}; }
+   if(request.Method==HttpMethod.Get) { gets++; return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"buildId\":\"A\",\"complete\":"+(completed?"true":"false")+",\"commodities\":{\"steel\":100},\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\",\"colonisationConstructionDepot\":{\"timestamp\":\""+(newer?"2026-10-05T00:00:00Z":"2026-10-01T00:00:00Z")+"\"}}")}; }
+   if(request.Method==HttpMethod.Post && request.RequestUri.AbsolutePath.EndsWith("/project/A/complete")) {
+    completions++; completed=true;
+    if(completionTimeout) throw new TaskCanceledException("Lost completion acknowledgment");
+    return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{}")};
+   }
    if(request.Method==HttpMethod.Post) {
     posts++; postBody=await request.Content.ReadAsStringAsync();
     if(!request.RequestUri.AbsolutePath.EndsWith("/contribute/Test")) throw new Exception("Incorrect contribution route");
@@ -66,6 +71,44 @@ class RavenReporterTest {
      reporter.Resolve(reporter.Review.Single().id,true);transport.timeout=false;await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);Assert(!reporter.Review.Any()&&reporter.Pending==0,"Explicit retry failed");
      transport.newer=true;int patches=transport.patches;reporter.Capture("file:700","456","123",Parse(Depot.Replace("25}","50}")));await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);Assert(transport.patches==patches,"Old depot overwrote newer server snapshot");
     }
+   }
+   var completion = Parse("{\"event\":\"ColonisationConstructionDepot\",\"timestamp\":\"2026-10-04T00:00:02Z\",\"MarketID\":123,\"ConstructionComplete\":true,\"ResourcesRequired\":[]}");
+   var zeroDepot = Parse("{\"event\":\"ColonisationConstructionDepot\",\"timestamp\":\"2026-10-04T00:00:01Z\",\"MarketID\":123,\"ConstructionComplete\":false,\"ResourcesRequired\":[{\"Name\":\"$steel_name;\",\"RequiredAmount\":100,\"ProvidedAmount\":100}]}");
+   string completionRoot=Path.Combine(root,"completion");
+   var completionTransport=new Transport();
+   using(var http=new HttpClient(completionTransport)) {
+    using(var reporter=new RavenDeliveryReporter(completionRoot,"Test")) {
+     reporter.Capture("zero","456","123",zeroDepot); await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+     Assert(completionTransport.completions==0,"Zero requirements incorrectly marked complete");
+     reporter.Capture("final-credit","456","123",Parse(Contribution));
+     reporter.Capture("complete","456","123",completion);reporter.Capture("repeat-complete","456","123",completion);
+     await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+     Assert(completionTransport.posts==1&&completionTransport.completions==1&&reporter.Pending==0,"Final credit or completion failed");
+     Assert(reporter.History.Single(x=>x.kind=="Completion").outcome=="Construction complete","Completion history missing");
+    }
+    using(var reporter=new RavenDeliveryReporter(completionRoot,"Test")) {
+     reporter.Capture("restart-complete","456","123",completion);await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+     Assert(completionTransport.completions==1,"Restart duplicated completion");
+    }
+   }
+   var lostCompletion=new Transport {completionTimeout=true};
+   string lostRoot=Path.Combine(root,"lost-completion");
+   using(var http=new HttpClient(lostCompletion)) {
+    using(var reporter=new RavenDeliveryReporter(lostRoot,"Test")) {
+     reporter.Capture("complete","456","123",completion);await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+     Assert(reporter.Pending==1&&!reporter.Review.Any(),"Interrupted completion not saved for verification");
+    }
+    using(var reporter=new RavenDeliveryReporter(lostRoot,"Test")) {
+     await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+     Assert(reporter.Pending==0&&lostCompletion.completions==1,"Lost acknowledgment duplicated completion call");
+    }
+   }
+   var heldCredit=new Transport {timeout=true};
+   using(var http=new HttpClient(heldCredit)) using(var reporter=new RavenDeliveryReporter(Path.Combine(root,"held-completion"),"Test")) {
+    reporter.Capture("credit","456","123",Parse(Contribution)); await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+    reporter.Capture("complete","456","123",completion);reporter.Resolve(reporter.Review.Single().id,true);
+    await reporter.Sync(http,"https://example.test/api/","test-key",Resolve);
+    Assert(heldCredit.completions==0,"Completion bypassed unresolved delivery credit");
    }
    string journals=Path.Combine(root,"journals");Directory.CreateDirectory(journals);
    string file=Path.Combine(journals,"Journal.01.log");File.WriteAllText(file,"{\"event\":\"LoadGame\",\"Commander\":\"Test\"}\n{\"event\":\"Location\",\"SystemAddress\":456,\"MarketID\":123}\n");

@@ -1,5 +1,7 @@
 # Squadron leader installation and administration
 
+Current stable release: **1.25**. See [release notes and upgrading](RELEASE-NOTES.md) and the [Raven construction workflow](RAVEN-WORKFLOW.md).
+
 This guide sets up ColonizationNeeds with your own Raven Colonial account and a shared carrier inventory hosted by Cloudflare Workers and D1. Members use the Windows application and a player token you give them. Only the leader needs to administer Cloudflare or run the player creation script.
 
 If you play alone, including on a squadron carrier, use the [solo player guide](SOLO-SETUP.md). Local inventory works without Cloudflare or shared storage.
@@ -25,7 +27,7 @@ Windows with .NET Framework 4.8 is required, normally available on Windows 10/11
 
 The configured commander must also match the commander in your game journal for automatic cargo tracking. Each player configures their own Raven account. Shared inventory shares carrier stock; it does not automatically share the leader's Raven project list or Raven credentials.
 
-To replace SrvSurvey's delivery reporting, enter your own Raven API key and enable **Report deliveries to Raven Colonial** in Settings. Disable delivery reporting in other tools first. This reports confirmed contributions and depot requirements while the application is running, in any cargo mode; it does not publish carrier balances or create projects. Each member enables reporting with their own Raven key. The Raven status line shows pending reports. If an outcome is uncertain, check contribution history and resolve it under **Settings > Delivery reports** before retrying.
+To replace SrvSurvey's delivery reporting, enter your own Raven API key and enable **Report deliveries to Raven Colonial** in Settings. Disable delivery reporting in other tools first. This reports confirmed contributions and depot requirements while the application is running, in any cargo mode; it also reports game-confirmed construction completion. It does not publish carrier balances. Planned construction setup is a separate explicit Settings action. Each member enables reporting with their own Raven key. The Raven status line shows pending reports. If an outcome is uncertain, check contribution history and resolve it under **Settings > Delivery reports** before retrying.
 
 You can use local inventory without Cloudflare. To record existing stock, use **Edit inventory > Set total** for each displayed commodity. These saved local counts can later initialize shared stock.
 
@@ -168,3 +170,13 @@ Queued shared transactions are saved locally and retried when the service become
 For an application update, close it, download the newer executable, and replace your copy. Saved settings are outside the project folder. Update Worker code or schema only when the release instructions require it; adding members does not require redeployment. Do not delete the D1 database to reinstall the application.
 
 The health endpoint has been checked on the original deployment. This guide does not claim that your new deployment or its authenticated player operations have been tested: perform the two-player check above before relying on the shared ledger.
+
+## Start and complete Raven constructions (version 1.25)
+
+In Colonize, Required is the fixed original construction total and Still needed alone decreases on delivery. Totals recover from depot data or saved journals without replaying old inventory/delivery events. Manual/Collect keep outstanding-requirement/stock-shortage semantics. Unknown original totals need a depot observation.
+
+Save your own Raven key, dock at the new site and open Construction Services. Use **Settings > Start planned construction** to select the matching planned name/body and exact type, then **Start / verify** and refresh. All cargo modes work. The reporting checkbox is not required for this explicit setup; Raven permissions are separate from Cloudflare admin/player roles. Resolve type variants ending in `?` in Raven first. Setup creates or reuses the project, links your commander and marks the plan Building. Agree with the squadron who starts each site; other commanders/carriers can be linked in Raven afterward.
+
+Enable **Report deliveries to Raven Colonial** for subsequent contribution, depot and completion reporting. Keep the app running for the game's completion event; zero remaining cargo alone is insufficient. Completion records appear in Delivery reports. Pending completion resumes with a server check after interruption, and final credits must finish or be reviewed first. Historical completion events are not backfilled. Disable overlapping reporting in SrvSurvey/BGS-Tally/other tools to avoid duplicate credits.
+
+This release requires no Cloudflare backend or schema update. Close the app before replacing the executable; saved settings and inventory are outside its folder. Full setup and recovery steps are in [the Raven workflow](RAVEN-WORKFLOW.md).

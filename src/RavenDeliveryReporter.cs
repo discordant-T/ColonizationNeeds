@@ -86,6 +86,7 @@ public sealed class RavenDeliveryReporter : IDisposable
         if (saved.reports.Any(x => x.id == id)) return;
         string evt = Convert.ToString(entry["event"]), signature = null;
         Dictionary<string, object> payload;
+        string kind = evt == "ColonisationContribution" ? "Contribution" : "Depot";
         if (evt == "ColonisationContribution")
         {
             var cargo = Contributions(entry); if (cargo.Count == 0) return;
@@ -93,6 +94,15 @@ public sealed class RavenDeliveryReporter : IDisposable
         }
         else if (evt == "ColonisationConstructionDepot")
         {
+            object completion;
+            if (entry.TryGetValue("ConstructionComplete", out completion) && completion is bool && (bool)completion)
+            {
+                if (saved.reports.Any(x => x.kind == "Completion" && x.system == system && x.market == market)) return;
+                kind = "Completion";
+                payload = null;
+            }
+            else
+            {
             var remaining = JournalCargoTracker.DepotRemaining(entry); if (remaining.Count == 0) return;
             long maximum = 0;
             foreach (var row in (object[])entry["ResourcesRequired"]) maximum = checked(maximum + Convert.ToInt64(((Dictionary<string, object>)row)["RequiredAmount"]));
@@ -102,9 +112,10 @@ public sealed class RavenDeliveryReporter : IDisposable
             string old;
             if (market.Length > 0 && saved.depotSignatures.TryGetValue(market, out old) && old == signature) return;
             payload = new Dictionary<string, object> { { "commodities", remaining }, { "maxNeed", maximum }, { "colonisationConstructionDepot", entry } };
+            }
         }
         else return;
-        var report = new Report { id = id, system = system, market = market, kind = evt == "ColonisationContribution" ? "Contribution" : "Depot", state = "Pending", payload = payload, timestamp = entry.ContainsKey("timestamp") ? Convert.ToString(entry["timestamp"]) : "" };
+        var report = new Report { id = id, system = system, market = market, kind = kind, state = "Pending", payload = payload, timestamp = entry.ContainsKey("timestamp") ? Convert.ToString(entry["timestamp"]) : "" };
         if (report.kind == "Contribution") report.cargo = payload.ToDictionary(x => x.Key, x => Convert.ToInt64(x.Value));
         saved.reports.Add(report);
         string previous = null; bool hadPrevious = market.Length > 0 && saved.depotSignatures.TryGetValue(market, out previous);
@@ -131,6 +142,8 @@ public sealed class RavenDeliveryReporter : IDisposable
             foreach (var report in saved.reports.Where(x => x.state == "Pending").ToArray())
             {
                 if (report.kind == "Contribution" && Review.Any()) continue;
+                // Preserve final delivery credit before the project leaves the active list.
+                if (report.kind == "Completion" && saved.reports.Any(x => x.kind == "Contribution" && x.market == report.market && x.system == report.system && x.state != "Sent")) continue;
                 try
                 {
                     if (String.IsNullOrEmpty(report.build))
@@ -142,6 +155,20 @@ public sealed class RavenDeliveryReporter : IDisposable
                     // A newer pending snapshot supersedes an older unsent depot observation.
                     if (report.kind == "Depot" && saved.reports.Any(x => x.kind == "Depot" && x.market == report.market && x.state == "Pending" && String.CompareOrdinal(x.timestamp, report.timestamp) > 0)) { report.state = "Sent"; report.outcome = "Superseded locally"; Save(); continue; }
                     string endpoint = "project/" + Uri.EscapeDataString(report.build);
+                    if (report.kind == "Completion")
+                    {
+                        if (!await IsComplete(client, baseUrl + endpoint, apiKey))
+                        {
+                            report.state = "InFlight"; Save();
+                            using (var request = Request(HttpMethod.Post, baseUrl + endpoint + "/complete", apiKey, null))
+                            using (var response = await client.SendAsync(request))
+                                if (!response.IsSuccessStatusCode) throw new IOException("Completion HTTP " + (int)response.StatusCode);
+                            if (!await IsComplete(client, baseUrl + endpoint, apiKey)) throw new IOException("Completion sent but Raven has not confirmed it; will check again.");
+                        }
+                        report.state = "Sent"; report.error = null; report.outcome = "Construction complete";
+                        try { Save(); } catch { report.state = "Pending"; throw; }
+                        continue;
+                    }
                     if (report.kind == "Contribution") endpoint += "/contribute/" + Uri.EscapeDataString(commander);
                     else
                     {
@@ -190,6 +217,18 @@ public sealed class RavenDeliveryReporter : IDisposable
         request.Headers.Add("rcc-cmdr0", Convert.ToBase64String(Encoding.UTF8.GetBytes(commander)));
         if (body != null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         return request;
+    }
+    async Task<bool> IsComplete(HttpClient client, string url, string key)
+    {
+        using (var request = Request(HttpMethod.Get, url, key, null))
+        using (var response = await client.SendAsync(request))
+        {
+            if (!response.IsSuccessStatusCode) throw new IOException("Completion check HTTP " + (int)response.StatusCode);
+            var project = ColonizationNeeds.ParseProject(await response.Content.ReadAsStringAsync());
+            object value;
+            if (!project.TryGetValue("complete", out value) || !(value is bool)) throw new IOException("Raven returned no construction completion status.");
+            return (bool)value;
+        }
     }
     public void Dispose() { lease.Dispose(); }
 }

@@ -1,5 +1,7 @@
 # Solo player setup and use
 
+Current stable release: **1.25**. See [release notes and upgrading](RELEASE-NOTES.md) and the [Raven construction workflow](RAVEN-WORKFLOW.md).
+
 Use ColonizationNeeds in **local inventory mode** when you are the only person tracking carrier stock. This works whether you use a personal fleet carrier or a squadron carrier. Owning or using a squadron carrier does not require shared inventory.
 
 Local mode requires no Cloudflare account, database, owner secret or player token. Raven Colonial supplies project requirements, while ColonizationNeeds saves your tracked carrier stock on your computer.
@@ -27,7 +29,7 @@ If you previously used shared inventory, resolve any pending shared updates befo
 
 ### Optional: report deliveries without SrvSurvey
 
-In **Settings**, enter your Raven API key and enable **Report deliveries to Raven Colonial**, then Save. First disable delivery reporting in SrvSurvey or any other reporting tool. Keep ColonizationNeeds running while delivering: confirmed contribution events report your commander credit and depot snapshots update the correct project's remaining requirements. This works in any cargo mode and requires no Cloudflare account. Carrier stock edits are not reported as deliveries. The feature does not import historical deliveries or create projects.
+In **Settings**, enter your Raven API key and enable **Report deliveries to Raven Colonial**, then Save. First disable delivery reporting in SrvSurvey or any other reporting tool. Keep ColonizationNeeds running while delivering: confirmed contribution events report your commander credit and depot snapshots update the correct project's remaining requirements. This works in any cargo mode and requires no Cloudflare account. Carrier stock edits are not reported as deliveries. No historical deliveries are uploaded. Game-confirmed completion now marks the Raven project complete and appears in Delivery reports. Planned construction setup is a separate explicit Settings action; see below.
 
 The Raven status line shows pending reports/errors. If it requests review after a timeout or interruption, open **Settings > Delivery reports**, check Raven's contribution history, then mark the report recorded if present or retry only if absent. Further contribution reporting waits until you resolve uncertain reports, avoiding an automatic duplicate retry.
 
@@ -35,11 +37,11 @@ Start in **Manual** cargo mode. For each displayed commodity you already hold, d
 
 | Column | Meaning |
 | --- | --- |
-| Required | Outstanding quantity reported by Raven Colonial for the selected projects |
+| Required | Outstanding Raven quantities in Manual/Collect; fixed original construction totals in Colonize |
 | Carrier stock | Your locally recorded stock for that commodity |
 | Still needed | In Manual/Collect, Required minus carrier stock, with a minimum of zero. In Colonize, the outstanding quantity still to deliver, without subtracting stock |
 
-Required reflects outstanding requirements, rather than the original construction cost including completed deliveries. The footer totals the displayed commodities. Inventory is shared between your project views: the combined view subtracts your stock once from combined requirements. Changing the project selection does not create another stock inventory.
+In Colonize, Required stays at the original construction cost while Still needed alone decreases on delivery. Original totals are recovered from depot data or saved journals and persist across restarts; recovery never replays deliveries or changes stock. Unknown totals require a depot observation. Manual/Collect retain outstanding-requirement semantics. The footer totals the displayed commodities. Inventory is shared between your project views: the combined view subtracts your stock once from combined requirements. Changing the project selection does not create another stock inventory.
 
 Local inventory is saved for the configured commander. It is a tracked balance, not a live query of your carrier's storage. Compare it with the actual carrier occasionally and correct differences with **Set total**.
 
@@ -96,3 +98,11 @@ You can download the executable on another computer, but local stock does not au
 If friends later need to update the same ledger, follow the [squadron leader installation guide](INSTALLATION.md) to set up shared inventory. An admin can use **Sync local to shared** to initialize it from the saved local counts. Review the preview: this replaces shared totals, including setting shared-only commodities to zero, rather than adding the two inventories. Give each friend their own member token and the [member setup guide](MEMBER-SETUP.md).
 
 You can continue using local mode indefinitely on a squadron carrier if you do not need other players' applications to synchronize stock.
+
+## Start and complete Raven constructions (version 1.25)
+
+Save your own Raven key, dock at the new site and open Construction Services. Use **Settings > Start planned construction** to select the matching planned name/body and exact type, then **Start / verify** and refresh. All cargo modes work. The reporting checkbox is not required for this explicit setup; Raven permissions are separate from Cloudflare admin/player roles. Resolve type variants ending in `?` in Raven first. Setup creates or reuses the project, links your commander and marks the plan Building. Agree with the squadron who starts each site; other commanders/carriers can be linked in Raven afterward.
+
+Enable **Report deliveries to Raven Colonial** for subsequent contribution, depot and completion reporting. Keep the app running for the game's completion event; zero remaining cargo alone is insufficient. Completion records appear in Delivery reports. Pending completion resumes with a server check after interruption, and final credits must finish or be reviewed first. Historical completion events are not backfilled. Disable overlapping reporting in SrvSurvey/BGS-Tally/other tools to avoid duplicate credits.
+
+This release requires no Cloudflare backend or schema update. Close the app before replacing the executable; saved settings and inventory are outside its folder. Full setup and recovery steps are in [the Raven workflow](RAVEN-WORKFLOW.md).

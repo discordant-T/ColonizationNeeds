@@ -10,6 +10,12 @@ Preserve Manual, Collect and Colonize modes. Collect credits newly loaded ship c
 
 In Colonize, Still needed is outstanding delivery need, not stock shortage. Read new construction-depot snapshots as absolute RequiredAmount minus ProvidedAmount, match by project MarketID, save per commander, and prefer newer Raven depot observation timestamps. Generic project timestamps are not depot freshness evidence. Without a newer depot observation, use the smaller known nonnegative remaining count. Do not subtract deliveries a second time or debit carrier stock on delivery. Keep bright cyan positive/unknown delivery text and green visible zero rows; Manual/Collect retain red positive shortages. Depot snapshots update delivery requirements only, not inventory acquisition accounting.
 
+Completion reporting requires a new journal ConstructionComplete boolean true and reporting enabled. Never infer completion from zero requirements. Persist completion requests, finish or explicitly resolve final contribution credits first, check Raven before POST /project/{buildId}/complete and verify afterward. Interrupted completion checks resume safely without replaying historical completions or duplicating contribution credit.
+
+Version 1.25 is the combined stable release. Planned construction setup is explicit, works in every cargo mode and is independent of the reporting checkbox. Preserve exact system/MarketID/body/type validation, planned-site selection, duplicate project reuse, commander linkage and verified Building status. Unknown variants ending in ? require correction in Raven first. Construction setup was tested live on Gernhardt Beacon; the user confirmed completion across several constructions.
+
+Colonize Required uses original RequiredAmount, saved per commander/project and recoverable read-only from historical depot events matched by commander/MarketID. Historical recovery must never upload old deliveries or apply inventory changes. Missing original totals stay Unknown rather than using partially delivered Raven balances. Preserve all reporting guards when updating the executable or guides.
+
 Check the README for behavior, API references, and multi-computer limitations. For API changes, verify the current RavenColonialWeb API host and headers instead of assuming the public website hosts its API. Keep changes in this project folder; older RavenNeeds files outside it are legacy snapshots.
 
 
