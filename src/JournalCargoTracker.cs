@@ -8,9 +8,11 @@ using System.Web.Script.Serialization;
 // Reads only complete, newly appended journal lines. Cargo snapshots are not acquisitions.
 public sealed class JournalCargoTracker
 {
-    sealed class Cursor { public long Offset; public bool SkipPartial; public string Commander = "", Vessel = "Ship", Market = "", System = ""; }
+    public sealed class Cursor { public long Offset; public bool SkipPartial; public string Commander = "", Vessel = "Ship", Market = "", System = "", StationType = "", DockMarket = ""; }
     readonly Dictionary<string, Cursor> cursors = new Dictionary<string, Cursor>(StringComparer.OrdinalIgnoreCase);
     readonly string folder;
+    string cursorPath;
+    public Action<string,string,string,string,Dictionary<string,object>> Movement;
     string currentCommander = "", currentVessel = "Ship";
     string currentMarket = "", currentSystem = "";
     public string CurrentCommander { get { return currentCommander; } }
@@ -43,6 +45,23 @@ public sealed class JournalCargoTracker
             currentMarket = cursor.Market; currentSystem = cursor.System;
         }
     }
+    public JournalCargoTracker(string folder,string statePath) : this(folder)
+    {
+        cursorPath=statePath;
+        if(File.Exists(cursorPath))
+        {
+            var saved=new JavaScriptSerializer().Deserialize<Dictionary<string,Cursor>>(File.ReadAllText(cursorPath));
+            if(saved==null) throw new IOException("Journal positions are unreadable; repair or restore the cursor backup.");
+            // Missing files are retained. New files since the saved baseline begin at byte zero.
+            cursors.Clear(); foreach(var p in saved) cursors[p.Key]=p.Value;
+            // Keep the latest read-only journal context established by the baseline scan.
+            // Loading durable offsets must not erase a verified commander while the game is idle.
+        }
+        else SaveCursors();
+    }
+    void SaveCursors() { if(cursorPath!=null) CarrierInventory.AtomicWrite(cursorPath,new JavaScriptSerializer().Serialize(cursors)); }
+    void CommitOffset(Cursor cursor,long offset)
+    { long previous=cursor.Offset; cursor.Offset=offset; try { SaveCursors(); } catch { cursor.Offset=previous; throw; } }
     static Dictionary<string, object> Parse(string line) { return new JavaScriptSerializer().DeserializeObject(line.TrimStart('\uFEFF')) as Dictionary<string, object>; }
     static string Text(Dictionary<string, object> data, string key) { object value; return data != null && data.TryGetValue(key, out value) ? Convert.ToString(value) : ""; }
     static long Count(Dictionary<string, object> data, string key, long fallback)
@@ -53,10 +72,11 @@ public sealed class JournalCargoTracker
     static void UpdateContext(Cursor cursor, Dictionary<string, object> data)
     {
         string evt = Text(data, "event");
-        if (evt == "LoadGame") { cursor.Commander = Text(data, "Commander"); cursor.Vessel = "Ship"; cursor.Market = ""; cursor.System = ""; }
+        if (evt == "LoadGame") { cursor.Commander = Text(data, "Commander"); cursor.Vessel = "Ship"; cursor.Market = ""; cursor.System = ""; cursor.StationType=""; cursor.DockMarket=""; }
         if (Text(data, "SystemAddress").Length > 0) cursor.System = Text(data, "SystemAddress");
-        if (evt == "Undocked" || evt == "FSDJump") cursor.Market = "";
-        if (Text(data, "MarketID").Length > 0) cursor.Market = Text(data, "MarketID");
+        if (Text(data,"MarketID").Length>0) cursor.Market=Text(data,"MarketID");
+        if (evt == "Undocked" || evt == "FSDJump" || (evt=="Location" && (!data.ContainsKey("Docked") || !Convert.ToBoolean(data["Docked"])))) { cursor.StationType=""; cursor.DockMarket=""; if(evt!="Location") cursor.Market=""; }
+        if (evt == "Docked" || (evt == "Location" && data.ContainsKey("Docked") && Convert.ToBoolean(data["Docked"])) || (evt == "CarrierJump" && data.ContainsKey("Docked") && Convert.ToBoolean(data["Docked"]))) { cursor.Market=Text(data,"MarketID"); cursor.DockMarket=cursor.Market; cursor.StationType=Text(data,"StationType"); }
         if (evt == "Commander") cursor.Commander = Text(data, "Name");
         if (evt == "Cargo" && Text(data, "Vessel").Length > 0) cursor.Vessel = Text(data, "Vessel");
         if (evt == "LaunchSRV") cursor.Vessel = "SRV";
@@ -193,12 +213,12 @@ public sealed class JournalCargoTracker
             Cursor cursor;
             if (!cursors.TryGetValue(file, out cursor))
             {
-                cursor = new Cursor { Commander = currentCommander, Vessel = currentVessel, Market = currentMarket, System = currentSystem }; cursors[file] = cursor;
+                                cursor = new Cursor(); cursors[file] = cursor;
             }
             if (new FileInfo(file).Length == cursor.Offset) continue;
             using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
-                if (stream.Length < cursor.Offset) { cursor.Offset = stream.Length; continue; }
+                if (stream.Length < cursor.Offset) throw new IOException("Journal was truncated. Restore the original file or review its saved cursor; tracking will not silently skip it.");
                 stream.Position = cursor.Offset;
                 using (var line = new MemoryStream())
                 {
@@ -206,17 +226,21 @@ public sealed class JournalCargoTracker
                     while ((next = stream.ReadByte()) >= 0)
                     {
                         if (next != '\n') { line.WriteByte((byte)next); continue; }
-                        if (cursor.SkipPartial) { cursor.SkipPartial = false; cursor.Offset = stream.Position; line.SetLength(0); continue; }
+                        if (cursor.SkipPartial) { cursor.SkipPartial = false; try { CommitOffset(cursor,stream.Position); } catch { cursor.SkipPartial=true; throw; } line.SetLength(0); continue; }
                         string text = Encoding.UTF8.GetString(line.ToArray()).Trim(); line.SetLength(0);
                         var data = text.Length > 0 ? Parse(text) : null;
+                        var before=new Cursor { Offset=cursor.Offset,SkipPartial=cursor.SkipPartial,Commander=cursor.Commander,Vessel=cursor.Vessel,Market=cursor.Market,System=cursor.System,StationType=cursor.StationType,DockMarket=cursor.DockMarket };
+                        try {
                         UpdateContext(cursor, data);
                         currentCommander = cursor.Commander; currentVessel = cursor.Vessel;
                         currentMarket = cursor.Market; currentSystem = cursor.System;
                         if (String.Equals(cursor.Commander, expectedCommander.Trim(), StringComparison.OrdinalIgnoreCase))
                         {
                             string evt = Text(data, "event");
+                            string eventMarket=Text(data,"MarketID"); if(eventMarket.Length==0) eventMarket=cursor.Market;
+                            if(Movement!=null) Movement(cursor.Commander,Path.GetFileName(file)+":"+stream.Position,evt=="CargoTransfer"?cursor.DockMarket:eventMarket,cursor.Vessel=="SRV"?"SRV":cursor.StationType,data);
                             if (report != null && (evt == "ColonisationContribution" || evt == "ColonisationConstructionDepot"))
-                                report(Path.GetFileName(file) + ":" + stream.Position, cursor.System, cursor.Market, data);
+                                report(Path.GetFileName(file) + ":" + stream.Position, cursor.System, eventMarket, data);
                             if (depot != null && Text(data, "event") == "ColonisationConstructionDepot")
                             {
                                 string market = Text(data, "MarketID");
@@ -226,7 +250,11 @@ public sealed class JournalCargoTracker
                             var gained = Acquisitions(data, cursor.Vessel);
                             if (gained.Count > 0) apply(gained); // Commit inventory before acknowledging this line.
                         }
-                        cursor.Offset = stream.Position;
+                        CommitOffset(cursor,stream.Position);
+                        } catch {
+                            cursor.Offset=before.Offset; cursor.SkipPartial=before.SkipPartial; cursor.Commander=before.Commander; cursor.Vessel=before.Vessel; cursor.Market=before.Market; cursor.System=before.System; cursor.StationType=before.StationType; cursor.DockMarket=before.DockMarket;
+                            currentCommander=before.Commander; currentVessel=before.Vessel; currentMarket=before.Market; currentSystem=before.System; throw;
+                        }
                     }
                 }
             }

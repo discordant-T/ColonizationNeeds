@@ -1,30 +1,22 @@
-# Continue developing ColonizationNeeds
+# Project map — 1.28.1
 
-Purpose: a lightweight always-on-top Windows window showing Elite Dangerous colonization commodity requirements from Raven Colonial.
+Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/ColonizationNeeds.exe and runs regression checks. Canonical current behavior is documented in README.md and CARRIER-TRACKING.md; RELEASE-NOTES.md accounts for all changes from the earlier acquisition tracker through Inbound/Outbound.
 
-Current stable version: **1.25**. Features: active/combined Raven projects; grouped commodities and totals; editable carrier stock; Manual/Collect/Colonize; fixed original Required with journal recovery; verified planned construction setup; delivery and completion reporting with saved queues/history; local or Cloudflare shared inventory, ledger and admin replacement; dark amber theme, saved opacity/location and preserved scroll/selection.
+| Component | Responsibility |
+|---|---|
+| src/ColonizationNeeds.cs | UI, project requirements, original-total recovery, profile integration, column arithmetic and settings. |
+| src/CompactUI.cs | Saved Compact/Full layout, optional columns, collapsible controls and always-visible status alerts. |
+| src/CarrierUI.cs | Carrier configuration/review, stock/cargo corrections, collection intent/destination and shared/local views. |
+| src/CarrierInventory.cs | Durable local stock ledger, legacy migration, signed discrepancies and cutoffs. |
+| src/TransitLedger.cs | Opted-in station purchases, Outbound withdrawals, mixed-lot consumption, loss/snapshot caps. |
+| src/CarrierDiscovery.cs | Read-only commander-specific carrier identification. |
+| src/JournalCargoTracker.cs | Dock/commander context, complete journal lines, durable positions and callback ordering. |
+| src/SharedInventoryClient.cs | DPAPI credentials, durable shared outbox, stable receipts, stock/cargo snapshots and registry CAS. |
+| src/PlayerProfiles.cs | Independent commander folders and migration. |
+| src/RavenConstruction.cs | Validated planned-site setup, reuse/link/verify. |
+| src/RavenDeliveryReporter.cs | Durable optional contributions/depot/completion reporting and uncertain review. |
+| backend/worker.js | Authenticated player/group APIs and per-player supply fold. |
+| backend/schema*.sql | Original stock, additive carrier registry/stock ledger, additive ship-cargo events/trigger. |
+| tests/ | Real SQLite Worker routes, local/shared replay/lost acknowledgment, UI arithmetic/configuration and Raven checks. |
 
-Project layout:
-
-- src/ColonizationNeeds.cs: application source and self-tests.
-- src/JournalCargoTracker.cs: complete new journal events, commander isolation and tracking tests.
-- src/RavenDeliveryReporter.cs: optional confirmed-delivery and depot reporting with persistent state and uncertain-response review.
-- src/RavenConstruction.cs: current dock reconstruction, planned-site creation/reuse, identity/type checks and verification tests.
-- RAVEN-WORKFLOW.md: start, deliver, complete and recovery steps.
-- RELEASE-NOTES.md: stable release contents and upgrading.
-- tests/Test-Reporting.ps1: mocked reporting checks run by build.ps1.
-- bin/ColonizationNeeds.exe: ready-to-run application.
-- build.ps1: rebuild and test with Windows' built-in .NET Framework compiler.
-- ColonizationNeeds.csproj: IDE/MSBuild project.
-- README.md: usage, API behavior, validation and version history.
-- AGENTS.md: instructions for future coding sessions.
-
-Version 1.6 renames RavenNeeds to ColonizationNeeds. On first normal launch it copies legacy settings and inventory from LocalAppData/RavenNeeds to LocalAppData/ColonizationNeeds without overwriting existing destination files. The legacy folder remains intact.
-
-Cross-computer files: source and executable are available in the public GitHub repository. Download or clone the repository on each computer, then open this folder as a local Codex project to continue work. No GitHub account or invitation is needed to download it. Public repository: https://github.com/discordant-T/ColonizationNeeds .
-
-Runtime account settings and inventory remain local. The Windows-encrypted API key must be entered independently on each computer. Local inventory does not automatically synchronize; shared inventory uses the Cloudflare group ledger. Pending queues remain on the original computer.
-
-Validation: build/self-tests and mocked reporting checks pass. The user confirmed construction setup live on Gernhardt Beacon and automatic completion across several constructions. Deployment-specific Cloudflare authorization and IDE/MSBuild builds require their usual separate checks. See RELEASE-NOTES.md.
-
-
+Keep source and runnable executable together, but never package runtime inventory, player tokens or API keys. Production deployments must preserve the existing database/registry/secrets and record validation/recovery information in DEPLOYMENT.md. Do not deploy merely to run tests.

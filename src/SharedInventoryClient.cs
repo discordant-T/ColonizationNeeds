@@ -13,8 +13,9 @@ public sealed class SharedInventoryClient : IDisposable
 {
     public sealed class Change
     {
-        public string requestId, commodity, operation, source;
+        public string requestId, commodity, operation, source, carrierId, observedAt;
         public long amount, expectedVersion;
+        public TransitLedger.Event transit;
     }
     public string Url { get; private set; }
     public string Token { get; private set; }
@@ -26,6 +27,21 @@ public sealed class SharedInventoryClient : IDisposable
     public string Warning { get; private set; }
     public Dictionary<string,long> Stock = new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string,long> Versions = new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string,long> CarrierBalances = new Dictionary<string,long>();
+    public Dictionary<string,long> TransitBalances = new Dictionary<string,long>();
+    public Dictionary<string,long> InboundBalances = new Dictionary<string,long>();
+    public bool InboundReady { get; private set; }
+    public bool TransitReady { get; private set; }
+    public Dictionary<string,long> CarrierVersions = new Dictionary<string,long>();
+    public List<CarrierInventory.Carrier> Carriers=new List<CarrierInventory.Carrier>();
+    public long CarrierRegistryVersion { get; private set; }
+    public bool RegistryReady { get; private set; }
+    public Dictionary<string,long> CarrierStock(string carrier)
+    {
+        var result=new Dictionary<string,long>();
+        foreach(var p in CarrierBalances) { var parts=p.Key.Split('|'); if(carrier.Length>0 && parts[0]!=carrier) continue; long n; result.TryGetValue(parts[1],out n); result[parts[1]]=checked(n+p.Value); }
+        return result;
+    }
     readonly string folder, queuePath;
     readonly HttpClient http;
     readonly JavaScriptSerializer json = new JavaScriptSerializer();
@@ -72,7 +88,10 @@ public sealed class SharedInventoryClient : IDisposable
         {
             change.commodity=JournalCargoTracker.Canonical(change.commodity);
             if(change.amount<0 || change.amount>1000000000) throw new ArgumentException("Shared quantities must be between 0 and 1,000,000,000 tonnes.");
-            change.requestId=Guid.NewGuid().ToString("N"); next.Add(change);
+            if(String.IsNullOrEmpty(change.requestId)) change.requestId=Guid.NewGuid().ToString("N");
+            var existing=next.SingleOrDefault(x=>x.requestId==change.requestId);
+            if(existing!=null && (existing.carrierId!=change.carrierId || existing.commodity!=change.commodity || existing.operation!=change.operation || existing.amount!=change.amount || existing.source!=change.source || existing.observedAt!=change.observedAt || json.Serialize(existing.transit)!=json.Serialize(change.transit))) throw new IOException("Journal event identity collision; review the original event.");
+            if(existing==null) next.Add(change);
         }
         Write(queuePath,json.Serialize(next)); queue=next;
     }
@@ -111,7 +130,8 @@ public sealed class SharedInventoryClient : IDisposable
                 var data=json.DeserializeObject(text) as Dictionary<string,object>;
                 if(!response.IsSuccessStatusCode)
                 {
-                    if((int)response.StatusCode==409) Blocked=true;
+                    var change=payload as Change; int code=(int)response.StatusCode;
+                    if(code==409 || (change!=null && change.source=="Manual" && (code==400 || code==403))) Blocked=true;
                     throw new IOException(data!=null && data.ContainsKey("error")?Convert.ToString(data["error"]):"Server returned HTTP "+(int)response.StatusCode);
                 }
                 if(data==null) throw new IOException("Unexpected shared server response.");
@@ -119,23 +139,66 @@ public sealed class SharedInventoryClient : IDisposable
             }
         }
     }
+    public async Task MigrateLegacy(string carrier,string commodity,long amount)
+    {
+        if(Pending>0 || !Ready) throw new IOException("Sync pending transactions first.");
+        long version; CarrierVersions.TryGetValue(CarrierInventory.Key("legacy",commodity),out version);
+        Enqueue(new[] { new Change { carrierId=carrier,commodity=commodity,amount=amount,operation="migrate",source="Manual",expectedVersion=version } });
+        await Sync();
+    }
+    public async Task LoadCarriers()
+    {
+        var response=await Request("v2/carriers");
+        Carriers=new JavaScriptSerializer().Deserialize<List<CarrierInventory.Carrier>>(json.Serialize(response["carriers"]));
+        if(response.ContainsKey("role")) Role=Convert.ToString(response["role"]);
+        if(response.ContainsKey("groupId")) Group=Convert.ToString(response["groupId"]);
+        CarrierRegistryVersion=Convert.ToInt64(response["version"]); RegistryReady=true;
+        if(Blocked && queue.Count>0 && (queue[0].source=="Market"||queue[0].source=="Transfer") && Carriers.Any(x=>x.id==queue[0].carrierId)) Blocked=false;
+    }
+    public async Task SaveCarriers(List<CarrierInventory.Carrier> carriers)
+    {
+        if(!RegistryReady || Role!="admin") throw new IOException("Connect as a shared group admin before changing carrier configuration.");
+        if(queue.Any(x=>!String.IsNullOrEmpty(x.carrierId)&&x.carrierId!="legacy"&&!carriers.Any(c=>c.id==x.carrierId))) throw new IOException("Keep the carrier IDs referenced by this profile's pending stock movements.");
+        var payload=new { requestId=Guid.NewGuid().ToString("N"),expectedVersion=CarrierRegistryVersion,carriers=carriers };
+        bool blockedBefore=Blocked;
+        Exception failure=null;
+        try { await Request("v2/carriers",payload); }
+        catch(Exception ex) { failure=ex; }
+        Blocked=blockedBefore; // Configuration conflicts must not poison the inventory queue.
+        await LoadCarriers();
+        if(failure!=null && (Carriers.Count!=carriers.Count || carriers.Any(c=>!Carriers.Any(x=>x.id==c.id && x.name==c.name && x.role==c.role && (x.callsign??"")==(c.callsign??"") && x.verified==c.verified)))) throw new IOException("Shared carrier configuration was not confirmed: "+failure.Message,failure);
+    }
     public async Task Sync()
     {
+        await LoadCarriers();
         while(queue.Count>0 && !Blocked)
         {
-            var sent=queue[0]; var response=await Request("transactions",sent);
+            var sent=queue[0]; if(String.IsNullOrEmpty(sent.carrierId)) sent.carrierId="legacy";
+            var response=await Request(sent.source=="Transit"?"v2/transit":"v2/transactions",sent);
             if(response.ContainsKey("shortfall") && Convert.ToBoolean(response["shortfall"])) Warning="Stock shortfall; reconcile manually.";
             // Remove only after acknowledgment; retries retain their stable request ID.
             var next=queue.Skip(1).ToList(); Write(queuePath,json.Serialize(next)); queue=next;
         }
-        var snapshot=await Request("inventory");
+        var snapshot=await Request("v2/inventory");
+        if(!snapshot.ContainsKey("schema") || Convert.ToInt32(snapshot["schema"])!=2) throw new IOException("Carrier backend v2 must be deployed before shared carrier tracking can be used.");
         var stock=new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase); var versions=new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
+        var balances=new Dictionary<string,long>(); var carrierVersions=new Dictionary<string,long>();
         foreach(var item in (object[])snapshot["inventory"])
         {
             var row=(Dictionary<string,object>)item; string key=JournalCargoTracker.Canonical(Convert.ToString(row["commodity"]));
-            stock[key]=Convert.ToInt64(row["quantity"]); versions[key]=Convert.ToInt64(row["version"]);
+            string carrier=Convert.ToString(row["carrier_id"]); long n=Convert.ToInt64(row["quantity"]), previous;
+            balances[CarrierInventory.Key(carrier,key)]=n; carrierVersions[CarrierInventory.Key(carrier,key)]=Convert.ToInt64(row["version"]);
+            stock.TryGetValue(key,out previous); stock[key]=checked(previous+n); versions[key]=Convert.ToInt64(row["version"]);
         }
-        Stock=stock; Versions=versions; Group=Convert.ToString(snapshot["groupId"]); Role=Convert.ToString(snapshot["role"]); Ready=true;
+        var transit=new Dictionary<string,long>(); object rawTransit;
+        TransitReady=snapshot.TryGetValue("transit",out rawTransit);
+        if(TransitReady) foreach(var item in (object[])rawTransit) {var row=(Dictionary<string,object>)item;transit[CarrierInventory.Key(Convert.ToString(row["carrier_id"]),Convert.ToString(row["commodity"]))]=Convert.ToInt64(row["quantity"]);}
+        var inbound=new Dictionary<string,long>(); object rawInbound;
+        InboundReady=snapshot.TryGetValue("inbound",out rawInbound);
+        if(InboundReady) foreach(var item in (object[])rawInbound) {var row=(Dictionary<string,object>)item;inbound[CarrierInventory.Key(Convert.ToString(row["carrier_id"]),Convert.ToString(row["commodity"]))]=Convert.ToInt64(row["quantity"]);}
+        InboundBalances=inbound;
+        TransitBalances=transit;
+        CarrierBalances=balances; CarrierVersions=carrierVersions; Stock=stock; Versions=versions; Group=Convert.ToString(snapshot["groupId"]); Role=Convert.ToString(snapshot["role"]); Ready=true;
     }
     public void Dispose() { http.Dispose(); }
 }

@@ -1,19 +1,35 @@
-# Install the shared inventory backend
+# Shared backend — 1.28
 
-This backend is prepared for https://colonizationneeds-api.macytr.workers.dev with a D1 binding named DB. The deployed health check has been verified. The Windows application supports Settings > Shared inventory; authenticated transactions still need testing with generated player credentials.
+Cloudflare Worker plus D1, with the database binding named DB and OWNER_TOKEN stored as a Cloudflare secret. Never embed owner/player/Cloudflare credentials in source or ship them in the Windows executable.
 
-1. In Cloudflare, open Storage & databases > D1 > colonizationneeds-db > Console. Paste schema.sql and execute it. The script creates tables without removing existing data.
-2. Open Workers & Pages > colonizationneeds-api > Edit code. Replace the starter Worker source with worker.js, then Deploy. Keep the DB binding.
-3. Open https://colonizationneeds-api.macytr.workers.dev/health. Successful setup returns JSON containing ok: true and schema: 1. The root URL returns Endpoint not found; this is expected.
-4. Before creating player credentials, add a Worker secret called OWNER_TOKEN containing a long randomly generated value (at least 32 random bytes). Keep it private. This is an administration secret for this service, not a Cloudflare account API token. It must never be distributed to players or committed to GitHub.
+## Install or upgrade
 
-API: POST /admin/players accepts owner Bearer authorization and {groupId,name,role} with role member or admin. It returns a generated accessToken once. The database stores only a SHA-256 hash of each player token. Revoke access by setting that player's active field to zero in the dashboard.
+1. For a fresh database apply schema.sql, schema-v2.sql and schema-transit.sql in that order. They use additive IF NOT EXISTS definitions. Existing v1 services need the missing carrier/transit migrations. A 1.27.2 database already has everything needed for 1.28; deploy only worker.js.
+2. Keep the existing DB binding, OWNER_TOKEN, players/token hashes, original inventory/ledger, carrier registry and cargo events. Do not create a new database or reset user stock for an upgrade. Record the active version/recovery information before changing production.
+3. Deploy worker.js to the existing service. Verify GET /health: ok true, schema 2, transit true, inbound true. Check authenticated inventory/carrier reads using existing player identities. Test mutations locally, not against production stock.
+4. Create player tokens with Create-Player.cmd or Create-Player.ps1. The script prompts for the owner secret with hidden input. Use the same GroupId for collaborating commanders, unique player identities/tokens, and member or admin role as appropriate. A member never needs the owner secret or Cloudflare sign-in.
+5. Members configure HTTPS Worker root URL and their player access token in Settings → Shared inventory. The app uses Bearer authentication and DPAPI-encrypted local settings. Admins save the shared Squadron/Personal carrier registry; members adopt it automatically. Upgrade hauling clients to 1.28.
 
-Player APIs require Authorization: Bearer <player token>. GET /inventory returns balances, per-commodity versions and a ledger cursor. GET /ledger?after=0 returns up to 200 transactions in sequence order; continue from the last sequence for further pages. POST /transactions accepts {requestId,commodity,operation,amount,source,expectedVersion}. Commodity uses the game's lowercase symbol. Operation is add, remove, set or colonize. Source is Manual, Collect or Colonize. Reuse the same requestId and payload when retrying a failed request. Set requires admin access and the latest commodity version, avoiding overwriting another player's concurrent change. Remove rejects insufficient stock; colonize clamps stock to zero and reports a shortfall. Quantities are limited to one billion tonnes.
+## API and storage
 
-Inventory and ledger are updated atomically through a database trigger. No Raven Colonial requests are made by this backend. Stock is an estimate following Collect/Colonize rules; reconciliation is manual. Browser CORS access is not enabled; the intended client is the Windows app. No public endpoint creates accounts or exposes inventory without a token.
+| Route | Behavior |
+|---|---|
+| GET /health | Public capability/schema check. Root / is not a health endpoint. |
+| POST /admin/players | Owner-secret authorization only; create a player token. |
+| GET/POST /v2/carriers | Group registry; POST admin-only, expectedVersion/requestId CAS, two unique carrier IDs/roles maximum. |
+| GET /v2/inventory | One consistent snapshot of carrier/Legacy stock, Outbound in transit array, Inbound in inbound array. |
+| POST /v2/transactions | Stable stock receipt: carrierId, commodity, operation, amount, source, observedAt for automatic events. Set/migrate admin-only with expectedVersion. |
+| GET /v2/ledger?after=0 | First 200 subsequent stock receipts. |
+| POST /v2/transit | Stable per-player cargo receipt: inbound, consume, cap, snapshot or reset. |
 
-Validation: Worker JavaScript syntax checked; SQLite tests cover ledger-trigger updates, duplicate retries, removal underflow, stale reconciliation versions and Colonize shortfalls. Live D1 deployment and end-to-end authorization remain unverified.
+The original players/inventory/ledger tables remain intact. Carrier inventory and receipts are additive. The stock-ledger trigger atomically records carrier withdrawals/returns in transit_events. Newly opted-in station purchases use the same event ledger: protocol inbound is stored as kind withdraw with carrier_id inbound:<destination> (numeric configured MarketID or any). No extra migration or destructive CHECK constraint rewrite is needed. Snapshot responses split these tagged lots from Outbound so older clients do not mislabel Inbound as Outbound.
 
-Run Create-Player.cmd to provision your first admin. It prompts for a commander name and the existing OWNER_TOKEN with hidden input, then copies the generated player token to your clipboard. Paste that player token into the app. Default group is squad-carrier. Create other players with -Role member and the same group. Do not share the owner secret.
+The chronological fold is per group/player, with observed time then sequence ordering. Inbound receipts require a configured destination or any. Deposits prioritize destination/Either Inbound, then origin Outbound, then other lots; deliveries/removal prefer Outbound then Inbound. Snapshot caps apply to total ship cargo and cannot credit personal cargo. Caps tagged inbound clear only that flow; old caps without a flow remain compatible with Outbound-only correction, including previously acknowledged empty-carrier receipts.
 
+Automatic Set total cutoffs exclude older stock events from affecting corrected balances or generating new ship lots. Stable request IDs and immutable receipt comparisons handle retries/collisions. Original v1 lost-acknowledgment receipts are recognized before old queues affect Legacy stock again. Groups that adopted carrier tracking reject old v1 stock mutation APIs; unmigrated groups retain legacy behavior. Registry version checks and stock/history protections remain.
+
+Player journals are trusted client observations, not an authoritative live query of all carrier storage. Outsider activity and absent logs require reconciliation. No historical purchase replay/backfill occurs. See ../CARRIER-TRACKING.md for application semantics and limitations, ../INSTALLATION.md for leader setup and ../DEPLOYMENT.md for actual deployed versions.
+
+## Local validation
+
+node tests/backend-tests.mjs <python-executable> executes real Worker routes and SQL through a SQLite D1 adapter. It uses isolated synthetic players and inventory, never the live service. Windows build.ps1 covers the desktop/outbox/profile/DPAPI/UI/reporting paths. Keep all tests free of real credentials.
