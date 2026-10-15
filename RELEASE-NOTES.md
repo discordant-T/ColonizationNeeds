@@ -1,5 +1,11 @@
 # Release history and upgrade coverage
 
+## 1.28.3 — Carrier icon
+
+- Added a multi-resolution Windows icon based on the supplied white Javelin-Class Carrier image, embedded by both build.ps1 and the IDE project.
+- Applied the embedded icon to the main window and taskbar. The executable stays standalone, with no external asset needed at runtime.
+- Documented the image source and preparation in assets/README.md. Inventory, credentials, tracking and backend behavior are unchanged.
+
 ## 1.28.2 — Quiet and stable tracking status
 
 - Routine no-active-journal waiting now shows neutral Idle and expanded details, without a flashing red alert. Confirmed mismatches and real tracking failures remain visible.

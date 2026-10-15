@@ -13,9 +13,9 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.28.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.28.2.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.28.2 Quiet tracking status")]
+[assembly: System.Reflection.AssemblyVersion("1.28.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.28.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.28.3 Carrier icon")]
 
 public partial class ColonizationNeeds : Form
 {
@@ -254,6 +254,7 @@ wine|Legal Drugs|Wine";
     {
         if(preview) settings=Path.Combine(Path.GetTempPath(),"ColonizationNeeds-preview","settings.json");
         Text = "ColonizationNeeds — Elite Dangerous";
+        Icon = Icon.ExtractAssociatedIcon(typeof(ColonizationNeeds).Assembly.Location);
         Size = new Size(690, 630); MinimumSize = new Size(660, 430);
         Font = new Font("Segoe UI", 9); TopMost = true;
         BackColor = WindowColor; ForeColor = TextColor;
