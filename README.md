@@ -1,82 +1,36 @@
-# ColonizationNeeds
+# ColonizationNeeds 1.28.2
 
-**Current stable version: 1.25.** A compact Windows application for Elite Dangerous colonization requirements and tracked carrier inventory. Source and a ready-to-run executable are included in this public repository.
+Windows Forms application for Elite Dangerous colonization supplies, with local or shared tracking across a squadron carrier, a personal carrier and multiple commanders on one PC.
 
-Download [ColonizationNeeds.exe](https://github.com/discordant-T/ColonizationNeeds/raw/refs/heads/main/bin/ColonizationNeeds.exe), or use **Code > Download ZIP** and run `bin\ColonizationNeeds.exe`. The executable can run from any folder by itself. Requires Windows with .NET Framework 4.8, normally included in Windows 10/11; no installer, SDK, Python or Electron is needed. The executable is unsigned.
+Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.2**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
+
+The table is **Commodity | To deliver | Stock | Inbound | Outbound | To collect**. To collect is `max(0, To deliver - Stock - Inbound - Outbound)` per commodity. Hover the headings for definitions.
+
+Enable **Collecting for carriers** before station purchases and choose their destination. Inbound counts those new purchases until deposited, delivered or removed. The switch defaults off per profile; personal purchases are ignored while off. Automatic tracking records carrier buys/sells and confirmed owner transfers. Withdrawals become Outbound until delivery/return/loss. Manual mode queues carrier movements for review and does not create new Inbound purchases. Turning collection off does not erase existing Inbound.
+
+
+**What the collection switch controls:** it marks new ordinary-station purchases as Inbound while Automatic tracking is active. Leave it off for personal purchases/trading; you do not need to turn it off to deliver. Deposits to a configured carrier always increase Stock, even with the switch off, and carrier withdrawals/deliveries still track normally. Turning it on later does not retroactively mark cargo already aboard. Turning it off does not erase existing loads. Any personal/trading goods deposited on a configured carrier also count as Stock.
+
+All active projects and individual project selection are retained. To deliver reflects construction requirements, not acquisition. Start planned construction, optional Raven delivery/depot/completion reporting, per-player keys, inventory corrections and discrepancy review remain available.
+
+## Compact display
+
+Choose **View → Compact view** for a 510 × 440 starting window (480-pixel minimum width), short headings, collapsible Controls/status and optional Inbound/Outbound columns and totals. Errors and review counts remain visible. Layout preferences are saved per player. Accounting and the backend are unchanged. See [Compact view](COMPACT-VIEW.md).
+
+Routine waiting for a game journal is quiet: Compact view shows Idle, and details are available in the expanded status section or **View → Tracking log**. This per-player diagnostic log stays on the PC and records state transitions rather than every poll. Genuine tracking failures, stock discrepancies and a confirmed active-commander mismatch remain visible. See [Compact view](COMPACT-VIEW.md).
 
 ## Guides
 
-- [Solo setup](SOLO-SETUP.md): local inventory on personal or squadron carriers, without Cloudflare.
-- [Squadron leader setup](INSTALLATION.md): Raven account, Cloudflare Workers/D1, owner secret, player tokens and administration.
-- [Member setup](MEMBER-SETUP.md): download, Raven account and the leader's shared inventory connection.
-- [Raven construction workflow](RAVEN-WORKFLOW.md): start planned sites, report deliveries, complete constructions and troubleshoot.
-- [Release notes and upgrading](RELEASE-NOTES.md).
-- [Development project](PROJECT.md) and [shared backend reference](backend/README.md).
+- [Carrier accounting and examples](CARRIER-TRACKING.md)
+- [Leader installation and administration](INSTALLATION.md)
+- [Member setup](MEMBER-SETUP.md) and [solo setup](SOLO-SETUP.md)
+- [Multiple players and PCs](PLAYER-PROFILES.md)
+- [Raven construction workflow](RAVEN-WORKFLOW.md)
+- [All changes and upgrade notes](RELEASE-NOTES.md)
+- [Backend setup](backend/README.md), [validation](VALIDATION.md), [deployment record](DEPLOYMENT.md)
 
-## Account and project selection
+## Build and test
 
-In **Settings**, save your commander name exactly as shown on Raven Colonial. This is the account identifier, not a numeric website user ID. Public project reads may work without a key; your own Raven API key is required for construction setup and delivery/completion reporting. A Cloudflare token is not a Raven key.
+Windows with .NET Framework 4.8 is required. `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1` uses the built-in Windows compiler and runs application/profile/DPAPI, journal, local/shared cargo, UI and Raven-reporting checks. No C# packages are required. Backend integration tests run the actual Worker routes and SQLite triggers locally: `node tests/backend-tests.mjs <python-executable>`. They do not contact production.
 
-Set the Elite Dangerous journal folder, normally `%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`. The game commander must match the configured commander. Select an individual active Raven project or **All active projects (combined)**. Refresh manually or enable **Refresh every minute** to update project data; this does not query actual carrier storage. Shared stock polls separately, approximately every five seconds.
-
-## Commodity columns and inventory
-
-Commodities are grouped by type, with totals in tonnes at the bottom. Double-click a commodity or use **Edit inventory** to **Add**, **Remove**, or **Set total**, with a preview before applying. Shared Set total requires the group's admin role.
-
-| Column | Manual / Collect | Colonize |
-| --- | --- | --- |
-| Required | Raven's outstanding commodity requirement | Original construction RequiredAmount, fixed despite deliveries |
-| Carrier stock | Tracked local or shared carrier balance | Same tracked balance |
-| Still needed | Outstanding requirement minus stock, minimum zero | Quantity still to deliver; carrier stock is not subtracted |
-
-In Colonize, original totals are recovered from Raven depot data, new local depot observations, saved totals, or existing journals for that commander and MarketID. Recovery reads original requirements only: it never replays deliveries, cargo loads or inventory transactions. If none of those sources contains the original totals, Required displays **Unknown** until a depot observation supplies them. Totals remain saved across refreshes and restarts. Combined views add each selected project's requirements; one commodity's surplus never offsets another's shortage.
-
-Positive Still needed is bright cyan in Colonize and red in Manual/Collect; known zero stays green. Depot remaining is RequiredAmount minus ProvidedAmount. Generic Raven metadata timestamps do not override a confirmed newer game observation; without newer depot evidence, the smaller known remaining balance is used.
-
-## Cargo modes
-
-Choose a mode before loading cargo and keep the app running.
-
-| Mode | Newly loaded ship cargo |
-| --- | --- |
-| Manual | Does not change tracked stock automatically |
-| Collect | Adds the loaded amount, assuming it will be deposited into the carrier |
-| Colonize | Deducts the loaded amount, assuming it came from the carrier |
-
-Loading 20 t of Steel changes a 100 t balance to 120 t in Collect or 80 t in Colonize. Shortfalls clamp automatic Colonize stock to zero and require manual correction. Unloads, repeated snapshots and construction deliveries do not apply another carrier-stock change. Existing cargo at startup, historical acquisitions and SRV acquisitions are not imported. Startup and mode/account changes establish a fresh baseline.
-
-These modes estimate carrier inventory at ship loading. They cannot verify a completed carrier deposit or identify the source carrier. Manually correct station purchases, losses, cancelled deposits or returned loads that violate the assumptions. Reconcile periodically with actual carrier storage; squadron carrier stock has no authoritative automatic reconciliation here. Run one tracker per game session.
-
-## Start, deliver and complete constructions
-
-**Settings > Start planned construction** works in every cargo mode. Save your Raven key, dock at the site, open Construction Services, select the matching planned Raven site and click **Start / verify**. The planned type must be exact; resolve variants ending in `?` on Raven first. The app creates or reuses the project, preserves the type, links your commander, marks the plan Building and verifies all three. Refresh the main window afterward. Setup is an explicit action and does not require the reporting checkbox. See the [workflow guide](RAVEN-WORKFLOW.md) for recovery and identity conflicts.
-
-Enable **Settings > Report deliveries to Raven Colonial** with your own key to report new confirmed contribution events and authoritative depot requirements in every mode, with local or shared inventory. Disable overlapping reporting in SrvSurvey/BGS-Tally/other tools to avoid duplicate credit. The app does not publish manual carrier edits or ship loading as project deliveries.
-
-When a new depot event reports `ConstructionComplete: true`, the app calls Raven's completion endpoint and verifies the result. Zero outstanding commodities alone do not trigger completion. Final credits are processed first; an uncertain contribution must be reviewed before completion proceeds. Completed projects leave Raven's active list on refresh.
-
-**Settings > Delivery reports** lists contributions and completion records; **Include depot requirement updates** also shows snapshots. An uncertain contribution is never retried automatically: check Raven history, then mark it recorded if present or retry only if absent. Pending work is saved per commander and resumes after reconnection/restart. Historical deliveries and completion events are not uploaded automatically.
-
-## Local and shared inventory
-
-Local mode works entirely without Cloudflare, including solo use of a squadron carrier. Counts are saved separately per commander and used across project views.
-
-Shared mode uses a Cloudflare Worker and D1 database with individual player tokens and an auditable ledger. Both players must connect to the same group; each still uses their own Raven account/project list. **View ledger** displays shared changes. The leader can use **Sync local to shared** to preview and replace shared balances with local counts; it does not add the inventories, and shared-only commodities become zero. Concurrent conflicts require review; replacement is per commodity, so an interrupted import can be partly applied. Switching modes does not itself copy either inventory.
-
-Keep the owner token with the leader; distribute individual player tokens only. No Cloudflare setup is needed for local mode. See the leader/member guides for installation and token management.
-
-## Window and saved data
-
-The compact window uses a near-black/amber palette, themed controls and readable selection colors. Refresh preserves selection and scroll position. **Always on top**, saved window location and an opacity slider from 30% to 100% support overlay use. Settings stays opaque; Cancel restores the previous opacity. Use borderless/windowed game mode if exclusive fullscreen covers desktop windows.
-
-Settings, inventories, reporting queues, requirements and window state are stored under `%LOCALAPPDATA%\ColonizationNeeds`, independently of the executable. Credentials are encrypted with Windows DPAPI for the current Windows user. Enter credentials separately on another computer; copying the exe does not synchronize local inventory or pending queues. Shared inventory provides multi-computer stock synchronization.
-
-## Upgrade and validation
-
-Close the running app, replace only the executable, then restart. Existing saved data is retained. Version 1.25 needs no Cloudflare schema migration or backend redeployment. Windows file properties identify version 1.25.0.0; the filename remains ColonizationNeeds.exe.
-
-The construction-start workflow was verified live on Gernhardt Beacon (Military Outpost, nemesis), including commander linkage and the plan's Building status. The user confirmed completion reporting working across several constructions. Automated checks cover journal isolation/replay prevention, original-total recovery, cargo arithmetic, construction identity/type conflicts, duplicate creation recovery, delivery reporting, completion verification and lost acknowledgments. These observations do not certify every player's Cloudflare deployment; test your group's connection independently.
-
-Build from this folder with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1`. It compiles the executable and runs self-tests plus mocked reporting checks. `--test-key-protection` separately checks DPAPI in a normal signed-in Windows session. IDE builds require the .NET Framework developer tools.
-
-API references: [Raven web client](https://github.com/njthomson/RavenColonialWeb/tree/main/src/api), [SrvSurvey construction creation](https://github.com/njthomson/SrvSurvey/blob/main/SrvSurvey/forms/FormNewProject.cs), [completion reporting](https://github.com/njthomson/SrvSurvey/blob/main/SrvSurvey/game/ColonyData.cs). This independent application is not affiliated with Raven Colonial or Frontier.
+The dated `README-1.26-reference.md` is historical documentation, not current setup instructions. No runtime credentials or inventory belong in the source package.

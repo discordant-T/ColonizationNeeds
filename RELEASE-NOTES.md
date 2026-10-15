@@ -1,34 +1,63 @@
-# Stable release 1.25
+# Release history and upgrade coverage
 
-Released October 7, 2026. Source and `bin/ColonizationNeeds.exe` are available on the repository's main branch. Executable file version: **1.25.0.0**. The filename stays **ColonizationNeeds.exe**.
+## 1.28.2 — Quiet and stable tracking status
 
-## New since the previous GitHub stable version 1.21
+- Routine no-active-journal waiting now shows neutral Idle and expanded details, without a flashing red alert. Confirmed mismatches and real tracking failures remain visible.
+- Centralized cargo status so shared-stock refresh and journal polling cannot alternate normal/waiting messages or erase a paused error. Restored the latest observed journal identity after durable cursor reload without replaying stock/history.
+- Added a per-profile, transition-only local tracking-status.log and View → Tracking log reader. No diagnostic backend uploads or new server deployment.
+- Added regression coverage for restart with no new journal lines, repeated poll/refresh status stability, quiet idle, diagnostic deduplication and recovery from real errors.
 
-- **Settings > Start planned construction** in any cargo mode. Select the planned Raven site while docked with Construction Services open. Setup creates or reuses the project, preserves its exact type, links your commander, updates the plan to Building and verifies the result.
-- **Fixed Colonize Required totals.** Original RequiredAmount is separate from outstanding delivery quantities, persists across refresh/restart, and can be recovered read-only from existing journals. Still needed alone reduces as deliveries arrive.
-- **Automatic Raven completion.** New game-confirmed completion events call and verify the explicit completion endpoint. Zero cargo remaining is not assumed complete.
-- **Completion history and durable recovery.** Completion records appear alongside deliveries; saved requests resume after interruption with a server check. Final delivery credits are processed first.
+## 1.28.1 — Compact desktop layout
 
-The earlier stable inventory, manual adjustments, commodity groups, dark amber theme, opacity, saved window position, scroll/selection preservation, local/shared modes, ledger and admin local-to-shared replacement remain available.
+- Added View → Compact/Full, 510 × 440 compact defaults and a 480-pixel minimum width. Kept project/carrier selection, collection switch and essential actions visible.
+- Added collapsible Controls for player/tracking/destination/carrier configuration and display options; collapsed detailed statuses into a summary. Errors, pending counts, movement/Raven review and warnings remain accessible while collapsed.
+- Shortened compact headings to Need/Stock/In/Out/Collect, with hover descriptions, truncated commodity names, protected numeric widths and independent Inbound/Outbound/totals visibility. Hidden columns still participate in accounting.
+- Saved both view sizes, expansion state and visibility per profile in view.json; preserved existing profile, key, inventory and tracking settings. New profiles retain independent default preferences.
+- Added narrow-layout, error visibility, overlap, persistence and accounting UI checks. No backend/schema/data changes or redeployment are required. See COMPACT-VIEW.md.
 
-## Upgrading
+## 1.28 — Inbound and Outbound
 
-1. Close ColonizationNeeds.
-2. Download the current executable from `bin/ColonizationNeeds.exe` in the public repository.
-3. Replace your existing executable, wherever you keep it, then restart. Source/backend files are not required beside it.
-4. Confirm Settings and the correct journal folder. Enable reporting with your own Raven key if you want deliveries and completion uploaded.
-5. Follow [the Raven workflow](RAVEN-WORKFLOW.md) to start a new planned site.
+Documentation clarification: added a switch-on/off behavior table and a buy-for-trade-then-deposit example to the accounting guide, with matching README/leader/member/solo/Raven guidance. The switch affects new station purchases only; carrier deposits/withdrawals/deliveries continue, existing loads remain tracked, and enabling later does not relabel existing cargo. All observed deposits to configured carriers count as Stock, including personal/trading goods. This clarification changes documentation only; the executable and deployed backend are unchanged.
 
-Saved settings, stock, queues, window state and original totals remain under `%LOCALAPPDATA%\ColonizationNeeds`. No backend/schema migration or Cloudflare redeployment is required for this release. Enter encrypted credentials separately on another Windows account/computer. Do not run the old and new executables together for one game session.
+- Added per-profile Collecting for carriers switch, default off, with named or Either destination. Confirmed new station purchases while Automatic and opted in create Inbound; personal/unknown-context/carrier purchases do not.
+- Renamed In transit to Outbound and Carrier stock to Stock. Added Inbound, heading help and a wider layout. To collect subtracts Stock + Inbound + Outbound, bounded at zero. Either-carrier cargo counts only in All carriers.
+- Deposits, withdrawals, deliveries, partial/mixed loads, station sales, jettison, loss, snapshots, corrections and shared owner isolation account for both flows without double credit. Separate Clear my Inbound/Outbound corrections preserve stock and other players' cargo.
+- Persisted collection intent/destination and cargo across restarts/profile changes. Intent changes process old unread events first; turning off does not erase loads. No historical purchase replay or arbitrary credit of existing ship cargo.
+- Extended existing additive transit ledger protocol with inbound receipts; no extra schema migration over 1.27.2. Retained old receipt/correction compatibility, credentials, stock and registry.
+- Rewrote current leader/member/solo/profile/Raven/accounting guides, refreshed backend/project/validation/deployment records and documented the full change history.
 
-## Verification
+## 1.27.2 — outbound cargo and clear columns
 
-The project builds with the Windows .NET Framework compiler and runs self-tests and mocked reporting tests. Construction tests cover uncertain variants, body conflicts, existing-project reuse, lost creation acknowledgments and commander verification. Completion tests cover final credit ordering, game completion with an empty resource list, zero requirements without completion, saved history and restart recovery without duplicate completion calls.
+- Replaced duplicate Required/Still needed display with To deliver and retained original verified totals internally.
+- Added shared In transit (now Outbound) for carrier withdrawals, consumed by player-specific delivery, return, sale, jettison, death and available ship snapshots. Added manual transit clearing and durable/retry-safe chronological events.
+- Added schema-transit.sql and atomic stock movement trigger. Preserved original tables, stock, users, keys, registry and Raven behavior. No historical stock replay.
+- Clarified the blocked pending-edit popup with the actual Settings → Shared inventory cancellation path.
 
-Live construction start was verified on Gernhardt Beacon in Synuefe HF-P c22-15, with the correct Military Outpost (nemesis) type and linked plan/commander. The user confirmed automatic completion across several constructions. Deployment-specific Cloudflare access still needs the leader's usual two-player connection check.
+## 1.27.1 — carrier discovery and shared configuration
 
-## Notes
+- Read-only commander-specific journal discovery of carrier MarketID/name/callsign/last seen; manual confirmation fallback.
+- Admin-managed Squadron/Personal registry, version-checked saves and member adoption. Protected carrier IDs with stock/history.
+- Deployed additive schema 2 to the existing service, preserving player tokens, stock and original ledger. No automatic assignment of Legacy stock to each carrier.
 
-Reporting is opt-in and requires the app running for new game events. It does not backfill deliveries or completion events. Historical journal lookup recovers original requirements only. Disable overlapping delivery/colonization reporting in other tools to avoid duplicate credit. Inventory remains an estimate; no authoritative squadron carrier storage reconciliation is added.
+## 1.27 — carrier-based accounting
 
-The prior v1.21-only local stable executable and v1.24 experimental builds are superseded by this combined stable release.
+- Automatic/Manual replaced acquisition-based Collect/Colonize modes. MarketSell and confirmed owner tocarrier transfers add stock; MarketBuy and confirmed toship transfers remove it. Known SRV movements are excluded, ambiguous events reviewed.
+- Added two carrier balances, All carriers/individual/Legacy views, manual Add/Remove/Set total and preserving Move from legacy.
+- Added stable journal IDs, durable commander/profile cursors, outbox lost-acknowledgment retries, signed discrepancies, reconciliation cutoffs and local process locks. Deliveries never debit stock twice.
+- Preserved project/all-project dropdown, Start planned construction, optional Raven contribution/depot/completion reporting, encrypted keys and existing stock.
+
+## 1.26.1 — player profiles
+
+- Multiple commanders on one PC, separate credentials, mode, local/shared stock, reporting queues, journal positions and display settings. New profiles do not inherit credentials. Verified original totals may be reused only for an exact project ID; remaining observations are isolated.
+
+## Earlier retained behavior
+
+- Planned construction validates location/type, creates or reuses a plan/project, links the commander and verifies Building status independently of cargo mode/reporting.
+- Raven uploads confirmed new contributions/depot snapshots and game-confirmed completion; durable state, stale-observation checks and uncertain-outcome review prevent accidental replay.
+- Dark amber UI, categories, opacity/location, scroll/selection retention, automatic refresh and Windows DPAPI protection remain.
+
+## Upgrade
+
+Close the previous app and run the supplied build on each hauling PC. Existing data stays in Local AppData. Do not repeat Legacy migration or carrier setup after 1.27.x. From an old backend, apply missing additive schema-v2.sql and schema-transit.sql before the current Worker. Existing 1.27.2 databases need only the new Worker. Keep DB bindings/secrets/player tokens unchanged. Fresh clients baseline history and do not assume existing ship cargo. Check a small real station → carrier → construction cycle after upgrading.
+
+The features above are published together in **v1.28.2**. Use [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest) for the executable and source package. README-1.26-reference.md is historical.

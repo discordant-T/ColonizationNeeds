@@ -13,3 +13,21 @@ shared-settings.json
 shared-outbox-*.json
 raven-reports-*.json
 raven-reports-*.lock
+
+# Runtime/private data must never be committed.
+profiles.json
+profiles/
+carrier-inventory.json*
+carrier-journal-cursors.json*
+inbound-settings.json*
+view.json*
+tracking-status.log
+Journal.*.log
+.backend-test/
+.env
+.env.*
+.dev.vars*
+*.pfx
+*.p12
+*.pem
+*.key

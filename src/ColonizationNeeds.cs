@@ -13,11 +13,11 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.25.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.25.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.25 stable")]
+[assembly: System.Reflection.AssemblyVersion("1.28.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.28.2.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.28.2 Quiet tracking status")]
 
-public class ColonizationNeeds : Form
+public partial class ColonizationNeeds : Form
 {
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
@@ -206,7 +206,7 @@ wine|Legal Drugs|Wine";
     readonly HttpClient client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
     readonly Timer timer = new Timer { Interval = 60000 };
     readonly Timer cargoTimer = new Timer { Interval = 2000 };
-    readonly ComboBox cargoMode = new ComboBox { Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly ComboBox cargoMode = new ComboBox { Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly Label cargoStatus = new Label { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8), Text = "Cargo tracking: Manual" };
     int windowOpacity = 100;
     SharedInventoryClient shared;
@@ -226,7 +226,11 @@ wine|Legal Drugs|Wine";
     Dictionary<string, Dictionary<string, long>> projectRequirements = new Dictionary<string, Dictionary<string, long>>();
     readonly Dictionary<string, Dictionary<string, object>> deliveryProjects = new Dictionary<string, Dictionary<string, object>>();
     bool changingMode, inventoryReady = true;
-    readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
+    string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds", "settings.json");
+    readonly ComboBox players = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly Button addPlayer = new Button { Text = "Add player", Dock = DockStyle.Right, Width = 85 };
+    PlayerProfiles profiles;
+    bool updatingPlayers, switchingPlayer;
     bool busy;
     string shownId;
 
@@ -248,8 +252,9 @@ wine|Legal Drugs|Wine";
     public ColonizationNeeds() : this(false) { }
     public ColonizationNeeds(bool preview)
     {
+        if(preview) settings=Path.Combine(Path.GetTempPath(),"ColonizationNeeds-preview","settings.json");
         Text = "ColonizationNeeds — Elite Dangerous";
-        Size = new Size(480, 565); MinimumSize = new Size(460, 395);
+        Size = new Size(690, 630); MinimumSize = new Size(660, 430);
         Font = new Font("Segoe UI", 9); TopMost = true;
         BackColor = WindowColor; ForeColor = TextColor;
         refresh.BackColor = configure.BackColor = AccentColor;
@@ -257,7 +262,8 @@ wine|Legal Drugs|Wine";
         refresh.FlatStyle = configure.FlatStyle = FlatStyle.Flat;
         editInventory.BackColor = refresh.BackColor; editInventory.ForeColor = refresh.ForeColor; editInventory.FlatStyle = FlatStyle.Flat;
         foreach (var button in new[] { refresh, configure, editInventory }) { button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = Color.FromArgb(95, 57, 14); }
-        StyleCombo(selection); StyleCombo(cargoMode);
+        StyleCombo(selection); StyleCombo(cargoMode); StyleCombo(players); StyleCombo(carrierView);
+        carrierView.ForeColor=TextColor; carrierView.BackColor=TableColor; carrierSettings.FlatStyle=FlatStyle.Flat; carrierSettings.ForeColor=TextColor; carrierSettings.BackColor=AccentColor;
         selection.ForeColor = TextColor; selection.BackColor = TableColor;
         status.ForeColor = Color.FromArgb(203, 133, 48);
         totals.BackColor = Color.FromArgb(30, 24, 17);
@@ -288,29 +294,55 @@ wine|Legal Drugs|Wine";
         list.GotFocus += delegate { list.Invalidate(); };
         list.LostFocus += delegate { list.Invalidate(); };
         list.Columns.Add("Commodity", 190);
-        list.Columns.Add("Required", 76, HorizontalAlignment.Right);
-        list.Columns.Add("Carrier stock", 88, HorizontalAlignment.Right);
-        list.Columns.Add("Still needed", 88, HorizontalAlignment.Right);
+        list.Columns.Add("To deliver", 88, HorizontalAlignment.Right);
+        list.Columns.Add("Stock", 76, HorizontalAlignment.Right);
+        list.Columns.Add("Inbound", 76, HorizontalAlignment.Right);
+        list.Columns.Add("Outbound", 76, HorizontalAlignment.Right);
+        list.Columns.Add("To collect", 88, HorizontalAlignment.Right);
         list.ShowItemToolTips = true;
-        list.SizeChanged += delegate { list.Columns[0].Width = Math.Max(130, list.ClientSize.Width - 252 - SystemInformation.VerticalScrollBarWidth - 4); };
+        var supplyHelp=new ToolTip {AutoPopDelay=12000,InitialDelay=500};
+        string headerHelp="";
+        string[] columnHelp={"Commodity", "To deliver: construction's remaining requirement.", "Stock: commodities aboard the selected carriers.", "Inbound: opted-in station purchases heading to a carrier. Either carrier counts only in All carriers.", "Outbound: cargo withdrawn from a carrier and still aboard players' ships.", "To collect: max(0, To deliver - Stock - Inbound - Outbound)."};
+        supplyHelp.SetToolTip(collecting,"Enable before buying supplies at stations. Personal purchases are ignored while off. New purchases only; existing tracked loads remain when switched off.");
+        supplyHelp.SetToolTip(inboundTarget,"Destination for future station purchases. Either carrier appears in All carriers only. Changing this does not reassign existing loads.");
+        list.MouseMove+=delegate(object sender,MouseEventArgs e) {
+            string help="";if(e.Y<Font.Height+12){int right=0;for(int i=0;i<list.Columns.Count;i++){right+=list.Columns[i].Width;if(e.X<right){help=columnHelp[i];break;}}}
+            if(help!=headerHelp){headerHelp=help;supplyHelp.SetToolTip(list,help);}
+        };
+        FormClosed+=delegate {supplyHelp.Dispose();};
+        
         list.MultiSelect = false; list.HideSelection = false;
-        var header = new Panel { Dock = DockStyle.Top, Height = 135, Padding = new Padding(8) };
+        var header = new Panel { Dock = DockStyle.Top, Height = 200, Padding = new Padding(8) };
         var entry = new Panel { Dock = DockStyle.Top, Height = 25 };
         entry.Controls.Add(project); entry.Controls.Add(refresh); entry.Controls.Add(configure); entry.Controls.Add(editInventory);
         var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 25 };
         options.Controls.Add(pin); options.Controls.Add(auto);
         var modePanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32 };
-        modePanel.Controls.Add(new Label { Text = "Cargo mode", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
-        cargoMode.Items.AddRange(new object[] { "Manual", "Collect", "Colonize" }); cargoMode.SelectedIndex = 0;
+        modePanel.Controls.Add(new Label { Text = "Tracking", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+        cargoMode.Items.AddRange(new object[] { "Manual", "Automatic" }); cargoMode.SelectedIndex = 0;
         cargoMode.BackColor = TableColor; cargoMode.ForeColor = TextColor;
         modePanel.Controls.Add(cargoMode);
-        modePanel.Controls.Add(new Label { Text = "Collect + / Colonize − (on loading)", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
-        header.Controls.Add(modePanel);
+        modePanel.Controls.Add(carrierView); modePanel.Controls.Add(carrierSettings);
+        carrierSettings.Click += async delegate { await ConfigureCarriers(); };
+        carrierView.SelectedIndexChanged += delegate { if(!refreshingCarriers && carrierInventory!=null) RefreshCarrierStock(); };
+        var inboundPanel=new FlowLayoutPanel {Dock=DockStyle.Bottom,Height=32};
+        inboundPanel.Controls.Add(collecting);inboundPanel.Controls.Add(inboundTarget);
+        collecting.CheckedChanged+=delegate {ChangeInboundIntent();};inboundTarget.SelectedIndexChanged+=delegate {ChangeInboundIntent();};
+        header.Controls.Add(modePanel);header.Controls.Add(inboundPanel);
         header.Controls.Add(selection); header.Controls.Add(entry); header.Controls.Add(options);
         selection.BringToFront();
+        var playerRow = new Panel { Dock = DockStyle.Top, Height = 30, Padding = new Padding(0, 0, 0, 5) };
+        playerRow.Controls.Add(players); playerRow.Controls.Add(addPlayer);
+        playerRow.Controls.Add(new Label { Text = "Player", Dock = DockStyle.Left, Width = 48, Padding = new Padding(0, 4, 0, 0) });
+        addPlayer.BackColor = AccentColor; addPlayer.ForeColor = TextColor; addPlayer.FlatStyle = FlatStyle.Flat; addPlayer.FlatAppearance.BorderSize = 0;
+        header.Controls.Add(playerRow); playerRow.BringToFront();
+        players.SelectedIndexChanged += async delegate { if (!updatingPlayers) await SwitchPlayer(players.SelectedItem as PlayerProfiles.Profile); };
+        addPlayer.Click += async delegate { await AddPlayer(); };
         project.Visible = false;
         Controls.Add(list); Controls.Add(totals); Controls.Add(status); Controls.Add(cargoStatus); Controls.Add(sharedStatus); Controls.Add(ravenStatus); Controls.Add(header);
-        pin.CheckedChanged += delegate { TopMost = pin.Checked; };
+        InitializeCompactUI(header,entry,playerRow,options,modePanel,inboundPanel);
+        pin.CheckedChanged += delegate { TopMost = pin.Checked; SaveDisplayOptions(); };
+        auto.CheckedChanged += delegate { SaveDisplayOptions(); };
         refresh.Click += async delegate { await LoadProject(); };
         configure.Click += async delegate { if (Configure()) { shownId = null; ClearCommodities(); LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); updatingSelection = true; selection.Items.Clear(); updatingSelection = false; await LoadProject(); } };
         cargoMode.SelectedIndexChanged += delegate
@@ -321,17 +353,17 @@ wine|Legal Drugs|Wine";
             {
                 if (cargoTracker != null) { try { PollCargo(); } catch { if (next != "Manual") throw; } }
                 SaveTrackingSettings(next, journalFolder);
-                selectedCargoMode = next;
+                selectedCargoMode = next; UpdateInboundControls();
                 ResetCargoTracker();
                 RenderCommodities();
             }
             catch (Exception ex)
             {
                 changingMode = true; cargoMode.SelectedItem = selectedCargoMode; changingMode = false;
-                cargoStatus.Text = "Mode unchanged: " + ex.Message;
+                SetTrackingProblem("Mode unchanged: "+ex.Message);
             }
         };
-        cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { cargoStatus.Text = "Cargo tracking paused: " + ex.Message; } } };
+        cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { SetTrackingProblem(ex.Message); } } };
         sharedTimer.Tick += async delegate { if (!editingInventory) { await SyncShared(); await SyncRaven(); } };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
@@ -341,7 +373,13 @@ wine|Legal Drugs|Wine";
         timer.Tick += async delegate { if (!editingInventory && auto.Checked && !String.IsNullOrWhiteSpace(commander)) await LoadProject(); };
         try
         {
-            if (!preview) MigrateLegacySettings();
+            if (!preview)
+            {
+                MigrateLegacySettings();
+                profiles = new PlayerProfiles(Path.GetDirectoryName(settings));
+                if (profiles.Active != null) settings = Path.Combine(profiles.Folder(profiles.Active), "settings.json");
+                RefreshPlayers();
+            }
             if (File.Exists(settings))
             {
                 var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(settings));
@@ -351,6 +389,11 @@ wine|Legal Drugs|Wine";
             }
         }
         catch { status.Text = "Saved settings could not be read. Open Settings to re-enter your account."; }
+        if (!preview && profiles == null)
+        {
+            configure.Enabled = addPlayer.Enabled = players.Enabled = false;
+            throw new IOException("Player profiles could not be opened. Existing account files were retained; repair profiles.json before starting.");
+        }
         try
         {
             string trackingPath = Path.Combine(Path.GetDirectoryName(settings), "tracking.json");
@@ -359,7 +402,8 @@ wine|Legal Drugs|Wine";
                 var saved = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(trackingPath));
                 int percent; if (saved.ContainsKey("opacity") && Int32.TryParse(saved["opacity"], out percent)) windowOpacity = Math.Max(30, Math.Min(100, percent));
                 if (saved.ContainsKey("journalFolder")) journalFolder = saved["journalFolder"];
-                if (saved.ContainsKey("mode") && cargoMode.Items.Contains(saved["mode"])) selectedCargoMode = saved["mode"];
+                if (saved.ContainsKey("mode")) selectedCargoMode = saved["mode"]=="Manual"?"Manual":"Automatic";
+                changingMode = true; try { if (saved.ContainsKey("pin")) pin.Checked = saved["pin"] == "true"; if (saved.ContainsKey("auto")) auto.Checked = saved["auto"] == "true"; } finally { changingMode = false; }
             }
         }
         catch { cargoStatus.Text = "Tracking settings unreadable; using Manual mode."; }
@@ -369,20 +413,105 @@ wine|Legal Drugs|Wine";
             try { shared = SharedInventoryClient.Load(Path.GetDirectoryName(settings)); }
             catch { sharedConfigFailed=true; sharedStatus.Text = "Shared settings unreadable. Open Settings → Shared inventory."; }
         }
+        if(!preview)try {LoadInboundIntent();}catch(Exception ex){collectingInbound=false;cargoStatus.Text="Inbound tracking off: "+ex.Message;}
+        if(!preview)LoadViewPreferences();
         if (!preview) Shown += async delegate { timer.Start(); sharedTimer.Start(); if (commander.Length > 0 || Configure()) { LoadInventory(); ResetCargoTracker(); cargoTimer.Start(); await SyncShared(); await LoadProject(); } };
         if (!preview) { RestoreWindowLocation(); FormClosing += delegate { SaveWindowLocation(); }; }
-        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); client.Dispose(); };
+        FormClosed += delegate { timer.Stop(); timer.Dispose(); cargoTimer.Stop(); cargoTimer.Dispose(); sharedTimer.Stop(); sharedTimer.Dispose(); if(shared != null) shared.Dispose(); if(ravenReporter != null) ravenReporter.Dispose(); if(carrierInventory!=null) carrierInventory.Dispose(); client.Dispose(); };
         Opacity = windowOpacity / 100.0;
         client.Timeout = TimeSpan.FromSeconds(15);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.25");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ColonizationNeeds/1.27.1");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
     }
 
+    void RefreshPlayers()
+    {
+        updatingPlayers = true;
+        try { players.Items.Clear(); if (profiles != null) { foreach (var p in profiles.All) players.Items.Add(p); players.SelectedItem = profiles.Active; } }
+        finally { updatingPlayers = false; }
+    }
+    bool CanSwitchPlayer()
+    {
+        return profiles != null && profiles.Active != null && !switchingPlayer && !busy && !sharedBusy && !ravenBusy && !constructionBusy && !editingInventory;
+    }
+    async Task AddPlayer()
+    {
+        if (!CanSwitchPlayer()) { MessageBox.Show(this, "Wait for the current operation to finish before adding a player."); return; }
+        using (var dialog = new Form { Text = "Add commander profile", Size = new Size(390, 170), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+        {
+            var name = new TextBox { Left = 15, Top = 40, Width = 340 };
+            dialog.Controls.Add(new Label { Text = "Exact Raven Colonial commander name", Left = 15, Top = 15, Width = 340 }); dialog.Controls.Add(name);
+            var save = new Button { Text = "Add", Left = 180, Top = 80, Width = 80, DialogResult = DialogResult.OK };
+            dialog.Controls.Add(save); dialog.Controls.Add(new Button { Text = "Cancel", Left = 275, Top = 80, Width = 80, DialogResult = DialogResult.Cancel }); dialog.AcceptButton = save; ApplyDialogPalette(dialog);
+            editingInventory = true;
+            DialogResult result; try { result = dialog.ShowDialog(this); } finally { editingInventory = false; }
+            if (result != DialogResult.OK) return;
+            try
+            {
+                var next = profiles.Add(name.Text); RefreshPlayers(); await SwitchPlayer(next);
+                if (profiles.Active == next && Configure()) { LoadInventory(); ResetCargoTracker(); await LoadProject(); }
+            }
+            catch (Exception ex) { MessageBox.Show(this, "Player could not be added: " + ex.Message); RefreshPlayers(); }
+        }
+    }
+    async Task SwitchPlayer(PlayerProfiles.Profile next)
+    {
+        if (next == null || (profiles != null && next == profiles.Active)) return;
+        if (!CanSwitchPlayer()) { RefreshPlayers(); status.Text = "Wait for the current operation to finish before switching players."; return; }
+        SharedInventoryClient candidate = null;
+        switchingPlayer = true; editingInventory = true;
+        try
+        {
+            // Validate credentials and connection before leaving the active account.
+            string nextSettings = Path.Combine(profiles.Folder(next), "settings.json");
+            var json = new JavaScriptSerializer();
+            var saved = json.Deserialize<Dictionary<string, string>>(File.ReadAllText(nextSettings));
+            if (saved["commander"] != next.name) throw new IOException("The profile's commander identity does not match its settings.");
+            string nextKey = String.IsNullOrEmpty(saved["key"]) ? "" : Unprotect(saved["key"]);
+            string nextMode = "Manual", nextFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Frontier Developments", "Elite Dangerous");
+            int nextOpacity = 100; bool nextPin = true, nextAuto = true;
+            string tracking = Path.Combine(Path.GetDirectoryName(nextSettings), "tracking.json");
+            if (File.Exists(tracking))
+            {
+                var options = json.Deserialize<Dictionary<string, string>>(File.ReadAllText(tracking));
+                if (options.ContainsKey("mode")) nextMode = options["mode"]=="Manual"?"Manual":"Automatic";
+                if (options.ContainsKey("journalFolder")) nextFolder = options["journalFolder"];
+                if (options.ContainsKey("pin")) nextPin = options["pin"] == "true"; if (options.ContainsKey("auto")) nextAuto = options["auto"] == "true";
+                int percent; if (options.ContainsKey("opacity") && Int32.TryParse(options["opacity"], out percent)) nextOpacity = Math.Max(30, Math.Min(100, percent));
+            }
+            candidate = SharedInventoryClient.Load(Path.GetDirectoryName(nextSettings));
+            if (cargoTracker != null && commander.Length > 0) PollCargo();
+            RememberViewSize();SaveViewPreferences();SaveWindowLocation(); profiles.Activate(next);
+            if (ravenReporter != null) ravenReporter.Dispose(); ravenReporter = null; ravenReporterCommander = null;
+            if (shared != null) shared.Dispose(); shared = candidate; candidate = null; sharedConfigFailed = false;
+            settings = nextSettings; commander = next.name; apiKey = nextKey; trackingProblem=""; loggedTrackingState="";
+            collectingInbound=false;inboundDestination="any";
+            reportDeliveries = saved.ContainsKey("reportDeliveries") && saved["reportDeliveries"] == "true";
+            selectedCargoMode = nextMode; journalFolder = nextFolder; windowOpacity = nextOpacity; Opacity = nextOpacity / 100.0;
+            changingMode = true; try { cargoMode.SelectedItem = nextMode; pin.Checked = nextPin; auto.Checked = nextAuto; } finally { changingMode = false; }
+            shownId = null; project.Clear(); ClearCommodities(); displayedUnknown.Clear(); displayedDelivery = null; displayedRequired = null;
+            depotBalances.Clear(); deliveryProjects.Clear(); projectRequirements.Clear(); historicalRequirementsChecked.Clear();
+            updatingSelection = true; try { selection.Items.Clear(); } finally { updatingSelection = false; }
+            ravenStatus.Text = "Raven reporting: " + (reportDeliveries ? "On" : "Off"); sharedStatus.Text = "";
+            Text = "ColonizationNeeds — " + commander; LoadInventory(); LoadInboundIntent(); ResetCargoTracker(); LoadViewPreferences(); RestoreWindowLocation(); RefreshPlayers();
+            status.Text = "Player switched to " + commander + ".";
+        }
+        catch (Exception ex) { status.Text = "Player switch failed: " + ex.Message; RefreshPlayers(); return; }
+        finally { if (candidate != null) candidate.Dispose(); switchingPlayer = false; editingInventory = false; }
+        cargoTimer.Start(); await SyncShared(); await LoadProject();
+    }
+
+    void SaveDisplayOptions()
+    {
+        if (changingMode || profiles == null || profiles.Active == null) return;
+        try { SaveTrackingSettings(selectedCargoMode, journalFolder); }
+        catch (Exception ex) { status.Text = "Display settings could not be saved: " + ex.Message; }
+    }
     void SaveTrackingSettings(string mode, string folder)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(settings));
-        File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder }, { "opacity", windowOpacity.ToString(CultureInfo.InvariantCulture) } }));
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(settings), "tracking.json"), new JavaScriptSerializer().Serialize(new Dictionary<string, string> { { "mode", mode }, { "journalFolder", folder }, { "opacity", windowOpacity.ToString(CultureInfo.InvariantCulture) }, { "pin", pin.Checked ? "true" : "false" }, { "auto", auto.Checked ? "true" : "false" } }));
     }
     public static Point VisibleWindowLocation(Point location, Size size, Rectangle workingArea)
     {
@@ -415,8 +544,8 @@ wine|Legal Drugs|Wine";
     }
     void ResetCargoTracker()
     {
-        try { cargoTracker = new JournalCargoTracker(journalFolder); cargoStatus.Text = "Cargo tracking: " + selectedCargoMode + " · Watching new ship loads"; }
-        catch (Exception ex) { cargoTracker = null; cargoStatus.Text = "Cargo tracking paused: " + ex.Message; }
+        try { EnsureCarrierInventory(); cargoTracker = new JournalCargoTracker(journalFolder,Path.Combine(Path.GetDirectoryName(settings), "carrier-journal-cursors.json")); cargoTracker.Movement=TrackMovement; trackingProblem=""; UpdateCargoStatus(); }
+        catch (Exception ex) { cargoTracker = null; SetTrackingProblem(ex.Message); }
     }
     bool SharedEnabled { get { return shared != null && shared.Enabled; } }
     async Task SyncShared()
@@ -432,10 +561,10 @@ wine|Legal Drugs|Wine";
             {
                 long value; if(current.Stock.TryGetValue(JournalCargoTracker.Canonical(key), out value)) inventory[key] = value;
             }
-            inventoryReady = true; RenderCommodities();
+            inventoryReady = true; RefreshCarrierChoices(); RefreshCarrierStock();
             sharedStatus.Text = "Shared: " + current.Group + " · " + current.Pending + " pending" + (current.Blocked ? " · Edit conflict; open Shared inventory" : " · " + DateTime.Now.ToString("HH:mm:ss")) + " " + current.Warning;
         }
-        catch(Exception ex) { if(!IsDisposed) sharedStatus.Text = "Shared: " + current.Pending + " pending · " + ex.Message; }
+        catch(Exception ex) { if(!IsDisposed) sharedStatus.Text = "Shared error: " + current.Pending + " pending · " + ex.Message; }
         finally { sharedBusy = false; }
     }
     void SaveInventory(Dictionary<string, long> updated)
@@ -459,40 +588,28 @@ wine|Legal Drugs|Wine";
         if (cargoTracker == null) ResetCargoTracker();
         if (cargoTracker == null || String.IsNullOrWhiteSpace(commander)) return;
         if (!inventoryReady && selectedCargoMode != "Manual") throw new IOException("Saved inventory could not be loaded. Correct it manually first.");
-        bool changed = false;
         cargoTracker.Poll(commander, delegate(Dictionary<string, long> gained)
         {
-            if (selectedCargoMode == "Manual") return;
-            if (SharedEnabled)
-            {
-                shared.Enqueue(gained.Select(x => new SharedInventoryClient.Change { commodity=x.Key, amount=x.Value, operation=selectedCargoMode=="Collect"?"add":"colonize", source=selectedCargoMode }));
-                sharedStatus.Text = "Shared: " + shared.Pending + " pending changes";
-                return;
-            }
-            var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
-            long quantity = 0; bool shortage = false;
-            foreach (var pair in gained)
-            {
-                string key = updated.Keys.FirstOrDefault(x => JournalCargoTracker.Canonical(x) == pair.Key) ?? pair.Key;
-                long held; updated.TryGetValue(key, out held);
-                if (selectedCargoMode == "Colonize" && pair.Value > held) shortage = true;
-                updated[key] = ApplyCargoMode(held, pair.Value, selectedCargoMode); quantity = checked(quantity + pair.Value);
-            }
-            SaveInventory(updated);
-            changed = true;
-            cargoStatus.Text = selectedCargoMode + ": " + (selectedCargoMode == "Collect" ? "+" : "−") + quantity.ToString("N0") + " t · " + DateTime.Now.ToString("HH:mm:ss") + (shortage ? " · Stock shortfall; correct manually" : "");
+            // Ship acquisitions do not identify carrier deposits. Movement callback owns stock.
         }, delegate(string market, string timestamp, Dictionary<string, long> remaining)
         {
-            if (selectedCargoMode != "Colonize") return;
+            // Depot observations are independent of the tracking switch.
             DateTimeOffset observedAt;
-            remaining["__observedUtcTicks"] = DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out observedAt) ? observedAt.UtcTicks : DateTime.UtcNow.Ticks;
-            depotBalances[commander.Trim().ToLowerInvariant() + "|" + market] = remaining;
+            if(!DateTimeOffset.TryParse(timestamp,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out observedAt)) return;
+            remaining["__observedUtcTicks"] = observedAt.UtcTicks;
+            string depotKey=commander.Trim().ToLowerInvariant()+"|"+market;
+            Dictionary<string,long> existing;
+            if(depotBalances.TryGetValue(depotKey,out existing)) {
+                long ticks; if(existing.TryGetValue("__observedUtcTicks",out ticks) && ticks>observedAt.UtcTicks) return;
+                foreach(var p in existing.Where(x=>x.Key.StartsWith("__required:"))) remaining[p.Key]=p.Value;
+            }
+            depotBalances[depotKey] = remaining;
             Directory.CreateDirectory(Path.GetDirectoryName(settings));
             string path = InventoryPath() + ".deliveries.json";
             File.WriteAllText(path + ".tmp", new JavaScriptSerializer().Serialize(depotBalances));
             if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
-            RecalculateDelivery(); changed = true;
-            cargoStatus.Text = "Colonize: depot requirements updated · " + DateTime.Now.ToString("HH:mm:ss");
+            RecalculateDelivery();
+            // Requirement timestamps are shown in project details, not transient tracking alerts.
         }, delegate(string identity, string system, string market, Dictionary<string, object> entry)
         {
             if (Convert.ToString(entry["event"]) == "ColonisationConstructionDepot")
@@ -507,7 +624,7 @@ wine|Legal Drugs|Wine";
                 string path = InventoryPath() + ".deliveries.json";
                 File.WriteAllText(path + ".tmp", new JavaScriptSerializer().Serialize(depotBalances));
                 if (File.Exists(path)) File.Replace(path + ".tmp", path, null); else File.Move(path + ".tmp", path);
-                RecalculateDelivery(); changed = true;
+                RecalculateDelivery();
             }
             if (RavenConstruction.Text(entry, "event") == "ColonisationConstructionDepot" && !deliveryProjects.Values.Any(x => RavenConstruction.Text(x, "marketId") == market))
                 status.Text = "Construction detected · Settings → Start planned construction";
@@ -516,8 +633,8 @@ wine|Legal Drugs|Wine";
             ravenReporter.Capture(identity, system, market, entry);
             ravenStatus.Text = ravenReporter.Status;
         });
-        if (changed) RenderCommodities();
-        if (selectedCargoMode != "Manual" && !String.Equals(cargoTracker.CurrentCommander, commander, StringComparison.OrdinalIgnoreCase)) cargoStatus.Text = "Cargo tracking: waiting for commander " + commander + ".";
+        trackingProblem="";
+        RefreshCarrierStock();
     }
 
     string InventoryPath()
@@ -535,16 +652,21 @@ wine|Legal Drugs|Wine";
 
     void LoadInventory()
     {
-        if(SharedEnabled) { inventory = new Dictionary<string,long>(shared.Stock, StringComparer.OrdinalIgnoreCase); inventoryReady=true; return; }
+        if(carrierInventory!=null) carrierInventory.Dispose(); carrierInventory=null;
+        if(String.IsNullOrWhiteSpace(commander)) { inventory.Clear(); inventoryReady=false; return; }
+        try { EnsureCarrierInventory(); }
+        catch(Exception ex) { inventoryReady=false; MessageBox.Show(this,ex.Message,"Carrier inventory paused"); return; }
+        if(SharedEnabled) { inventory = new Dictionary<string,long>(shared.Stock, StringComparer.OrdinalIgnoreCase); inventoryReady=true; RefreshCarrierStock(); return; }
         inventoryReady = true;
         inventory = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         try { if (File.Exists(InventoryPath())) inventory = ParseInventory(File.ReadAllText(InventoryPath())); }
         catch { inventoryReady = false; MessageBox.Show(this, "Saved inventory could not be read. Automatic cargo changes are paused. Your previous file is kept as a backup when you next save.", "Inventory"); }
+        RefreshCarrierStock();
     }
 
     void ClearCommodities()
     {
-        displayedCargo = null; list.Items.Clear(); list.Groups.Clear(); totals.Text = "Totals (t): —"; editInventory.Enabled = false;
+        displayedCargo = null; list.Items.Clear(); list.Groups.Clear(); totals.Text = "Totals (t): —"; editInventory.Enabled = carrierInventory != null;
     }
 
     public static long Remaining(long required, long held)
@@ -569,42 +691,42 @@ wine|Legal Drugs|Wine";
     void RenderCommodities()
     {
         if (displayedCargo == null) return;
-        long totalRequired = 0, totalHeld = 0, totalRemaining = 0;
-        int unknown = 0, unknownRequired = 0;
+        bool stockUnknown=!inventoryReady || (SharedEnabled && !shared.Ready);
+        long totalHeld = 0, totalRemaining = 0, totalShortage = 0, totalTransit = 0, totalInbound = 0;
+        int unknown = 0;
         var rows = new List<ListViewItem>();
         var groups = new Dictionary<string, ListViewGroup>();
         foreach (var item in displayedCargo.OrderBy(x => CommodityCategory(x.Key) == "Other" ? "~" : CommodityCategory(x.Key), StringComparer.OrdinalIgnoreCase).ThenBy(x => CommodityName(x.Key), StringComparer.OrdinalIgnoreCase))
         {
-            long required = Convert.ToInt64(item.Value);
             long held; inventory.TryGetValue(item.Key, out held);
             bool uncertain = displayedUnknown.Contains(item.Key);
-            bool requiredUncertain = uncertain;
-            if (selectedCargoMode == "Colonize")
-            {
-                long original;
-                requiredUncertain = displayedRequired == null || !displayedRequired.TryGetValue(JournalCargoTracker.Canonical(item.Key), out original) || original < 0;
-                required = requiredUncertain ? 0 : displayedRequired[JournalCargoTracker.Canonical(item.Key)];
-            }
-            if (required == 0 && held == 0 && !uncertain && selectedCargoMode != "Colonize") continue;
-            long remaining = selectedCargoMode == "Colonize" ? (displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) ? Convert.ToInt64(displayedDelivery[item.Key]) : required) : Remaining(required, held);
-            if (selectedCargoMode == "Colonize" && displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) && Convert.ToInt64(displayedDelivery[item.Key]) >= 0) uncertain = false;
+            long remaining = displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) ? Convert.ToInt64(displayedDelivery[item.Key]) : -1;
+            if (displayedDelivery != null && displayedDelivery.ContainsKey(item.Key) && Convert.ToInt64(displayedDelivery[item.Key]) >= 0) uncertain = false;
             if (remaining < 0) { remaining = 0; uncertain = true; }
             var row = new ListViewItem(CommodityName(item.Key)); row.ToolTipText = row.Text;
             string category = CommodityCategory(item.Key);
             if (!groups.ContainsKey(category)) groups[category] = new ListViewGroup(category, HorizontalAlignment.Left);
             row.Group = groups[category];
             row.Tag = item.Key;
-            row.SubItems.Add(requiredUncertain ? (required > 0 ? required.ToString("N0") + " + ?" : "Unknown") : required.ToString("N0"));
-            row.SubItems.Add(held.ToString("N0"));
             row.SubItems.Add(uncertain ? (remaining > 0 ? remaining.ToString("N0") + " + ?" : "Unknown") : remaining.ToString("N0"));
+            row.SubItems.Add(stockUnknown?"Unknown":held.ToString("N0"));
+            long inTransit=TransitStock(item.Key);
+            long inbound=TransitStock(item.Key,true);
+            bool inboundUnknown=SharedEnabled && !shared.InboundReady;
+            bool transitUnknown=SharedEnabled && !shared.TransitReady;
+            row.SubItems.Add(inboundUnknown?"Unknown":inbound.ToString("N0"));
+            row.SubItems.Add(transitUnknown?"Unknown":inTransit.ToString("N0"));
+            row.ToolTipText=row.Text+" · To collect = To deliver minus Stock, Inbound (opted-in station purchases for this destination) and Outbound (carrier withdrawals). Either-carrier Inbound counts only in All carriers. Transit is shared across players; withdrawals tracked by this release only.";
+            long shortage=Remaining(remaining,checked(held+inTransit+inbound)); row.SubItems.Add(uncertain||stockUnknown||transitUnknown||inboundUnknown?"Unknown":shortage.ToString("N0"));
             row.ForeColor = !uncertain && remaining == 0 ? CoveredColor : TextColor;
             row.UseItemStyleForSubItems = false;
             foreach (ListViewItem.ListViewSubItem cell in row.SubItems) cell.ForeColor = row.ForeColor;
-            row.SubItems[3].ForeColor = !uncertain && remaining == 0 ? CoveredColor : selectedCargoMode == "Colonize" ? DeliveryNeededColor : NeededColor;
+            row.SubItems[1].ForeColor = !uncertain && remaining == 0 ? CoveredColor : DeliveryNeededColor;
+            row.SubItems[5].ForeColor = !uncertain && !stockUnknown && shortage == 0 ? CoveredColor : NeededColor;
             rows.Add(row);
-            totalRequired = checked(totalRequired + required); totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
+            totalHeld = checked(totalHeld + held); totalRemaining = checked(totalRemaining + remaining);
+            totalShortage=checked(totalShortage+shortage); totalTransit=checked(totalTransit+inTransit); totalInbound=checked(totalInbound+inbound);
             if (uncertain) unknown++;
-            if (requiredUncertain) unknownRequired++;
         }
         string selected = list.SelectedItems.Count > 0 ? Convert.ToString(list.SelectedItems[0].Tag) : null;
         // Keep the same commodity at the same vertical offset, even if rows above it change.
@@ -621,8 +743,8 @@ wine|Legal Drugs|Wine";
             {
                 for (int i = 0; i < rows.Count; i++)
                 {
-                    for (int column = 1; column < 4; column++) list.Items[i].SubItems[column].Text = rows[i].SubItems[column].Text;
-                    for (int column = 0; column < 4; column++) list.Items[i].SubItems[column].ForeColor = rows[i].SubItems[column].ForeColor;
+                    for (int column = 1; column < 6; column++) list.Items[i].SubItems[column].Text = rows[i].SubItems[column].Text;
+                    for (int column = 0; column < 6; column++) list.Items[i].SubItems[column].ForeColor = rows[i].SubItems[column].ForeColor;
                     list.Items[i].ForeColor = rows[i].ForeColor;
                 }
             }
@@ -642,83 +764,12 @@ wine|Legal Drugs|Wine";
             SendMessage(list.Handle, 0x1014, IntPtr.Zero, new IntPtr(restored.Bounds.Top - anchorY)); // LVM_SCROLL, pixel offset.
         }
         string suffix = unknown > 0 ? " + unknown" : "";
-        totals.Text = "Totals (t): Required " + totalRequired.ToString("N0") + (unknownRequired > 0 ? " + ?" : "") + " | Stock " + totalHeld.ToString("N0") + " | Needed " + totalRemaining.ToString("N0") + suffix + "\nDouble-click to Add, Remove, or Set total.";
+        totals.Text = (carrierView.SelectedItem==null?"All carriers":((CarrierInventory.Carrier)carrierView.SelectedItem).name) + " · Stock " + (stockUnknown?"Unknown":totalHeld.ToString("N0")) + " | Inbound " + (SharedEnabled&&!shared.InboundReady?"Unknown":totalInbound.ToString("N0")) + " | Outbound " + (SharedEnabled&&!shared.TransitReady?"Unknown":totalTransit.ToString("N0")) + "\nTo deliver " + totalRemaining.ToString("N0") + suffix + " | To collect " + (stockUnknown||(SharedEnabled&&(!shared.TransitReady||!shared.InboundReady))?"Unknown":totalShortage.ToString("N0") + suffix);
         editInventory.Enabled = !busy;
+        if(viewReady){FitViewColumns();UpdateCompactStatus();}
     }
 
-    void EditInventory()
-    {
-        if(SharedEnabled && !shared.Ready) { MessageBox.Show(this,"Connect to shared inventory before editing it."); return; }
-        if (busy || displayedCargo == null) return;
-        if (list.SelectedItems.Count == 0) { MessageBox.Show(this, "Select a commodity first, then click Edit inventory.", "Inventory"); return; }
-        var row = list.SelectedItems[0]; string commodity = Convert.ToString(row.Tag);
-        long held; inventory.TryGetValue(commodity, out held);
-        long sharedVersion=0; if(SharedEnabled) shared.Versions.TryGetValue(JournalCargoTracker.Canonical(commodity),out sharedVersion);
-        editingInventory = true;
-        try
-        {
-            using (var dialog = new Form { Text = "Inventory — " + row.Text, Size = new Size(420, 315), Font = Font, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
-            {
-                dialog.Controls.Add(new Label { Left = 15, Top = 18, Width = 370, Text = "Current inventory: " + held.ToString("N0") + " t" });
-                var operation = new ComboBox { Left = 15, Top = 47, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
-                operation.Items.AddRange(SharedEnabled && (!shared.Ready || shared.Role != "admin" || shared.Pending > 0) ? new object[] { "Add", "Remove" } : new object[] { "Add", "Remove", "Set total" });
-                dialog.Controls.Add(operation);
-                var amountLabel = new Label { Left = 15, Top = 82, Width = 370, Text = "Quantity to add (tonnes)" };
-                dialog.Controls.Add(amountLabel);
-                var quantity = new NumericUpDown { Left = 15, Top = 106, Width = 370, Minimum = 0, Maximum = Int64.MaxValue, Value = 0, ThousandsSeparator = true, DecimalPlaces = 0 };
-                dialog.Controls.Add(quantity);
-                var result = new Label { Left = 15, Top = 140, Width = 370, Height = 24 };
-                dialog.Controls.Add(result);
-                dialog.Controls.Add(new Label { Left = 15, Top = 172, Width = 370, Height = 42, Text = "Manual corrections update carrier stock.\nAutomatic modes act when cargo is loaded onto your ship." });
-                var save = new Button { Left = 215, Top = 230, Width = 80, Text = "Apply" };
-                var cancel = new Button { Left = 305, Top = 230, Width = 80, Text = "Cancel", DialogResult = DialogResult.Cancel };
-                dialog.Controls.Add(save); dialog.Controls.Add(cancel); dialog.AcceptButton = save; dialog.CancelButton = cancel;
-                Action preview = delegate
-                {
-                    try
-                    {
-                        long next = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
-                        result.Text = "New inventory: " + next.ToString("N0") + " t"; result.ForeColor = TextColor; save.Enabled = true;
-                    }
-                    catch (ArgumentException ex) { result.Text = ex.Message; result.ForeColor = Color.Firebrick; save.Enabled = false; }
-                    catch (OverflowException) { result.Text = "The resulting quantity is too large."; result.ForeColor = Color.Firebrick; save.Enabled = false; }
-                };
-                operation.SelectedIndexChanged += delegate
-                {
-                    string mode = Convert.ToString(operation.SelectedItem);
-                    amountLabel.Text = mode == "Set total" ? "New total in inventory (tonnes)" : "Quantity to " + mode.ToLowerInvariant() + " (tonnes)";
-                    quantity.Value = mode == "Set total" ? held : 0;
-                    preview();
-                };
-                quantity.ValueChanged += delegate { preview(); };
-                operation.SelectedIndex = 0;
-                save.Click += delegate
-                {
-                    try
-                    {
-                        if(SharedEnabled)
-                        {
-                            string key=JournalCargoTracker.Canonical(commodity); long version=sharedVersion;
-                            string op=Convert.ToString(operation.SelectedItem);
-                            shared.Enqueue(new[] { new SharedInventoryClient.Change { commodity=key, amount=Decimal.ToInt64(quantity.Value), operation=op=="Set total"?"set":op.ToLowerInvariant(), expectedVersion=version, source="Manual" } });
-                            sharedStatus.Text="Shared: "+shared.Pending+" pending changes"; dialog.DialogResult=DialogResult.OK; return;
-                        }
-                        var updated = new Dictionary<string, long>(inventory, StringComparer.OrdinalIgnoreCase);
-                        updated[commodity] = AdjustInventory(held, Decimal.ToInt64(quantity.Value), Convert.ToString(operation.SelectedItem));
-                        // Check footer arithmetic before committing the edit.
-                        long sum = 0; foreach (var p in displayedCargo) { long n; if (updated.TryGetValue(p.Key, out n)) sum = checked(sum + n); }
-                        SaveInventory(updated); RenderCommodities(); dialog.DialogResult = DialogResult.OK;
-                    }
-                    catch { MessageBox.Show(dialog, "Inventory could not be saved. Check the quantity and access to your Local AppData folder."); }
-                };
-                ApplyDialogPalette(dialog);
-                preview();
-                dialog.ShowDialog(this);
-            }
-        }
-        finally { editingInventory = false; }
-    }
-
+    void EditInventory() { EditCarrierInventory(); }
     static string Protect(string key) { return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser)); }
     static string Unprotect(string key) { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(key), null, DataProtectionScope.CurrentUser)); }
     void ConfigureShared()
@@ -737,80 +788,24 @@ wine|Legal Drugs|Wine";
                 dialog.Controls.Add(new Label { Text="Your token identifies your player and carrier group.\nLocal stock is kept separately; it is not uploaded automatically.\nChanges appear after server confirmation, normally within 5 seconds.", Left=15, Top=162, Width=390, Height=64 });
                 var test=new Button { Text="Test connection", Left=15, Top=235, Width=125 };
                 var ledger=new Button { Text="View ledger", Left=145, Top=235, Width=110 };
-                var import=new Button { Text="Sync local to shared", Left=260, Top=235, Width=145 };
                 var cancelEdit=new Button { Text="Cancel conflicted edit", Left=15, Top=277, Width=180, Enabled=shared!=null && shared.Blocked };
                 var message=new Label { Left=15, Top=315, Width=390, Height=25 };
                 var save=new Button { Text="Save", Left=230, Top=345, Width=80 };
                 var cancel=new Button { Text="Cancel", Left=325, Top=345, Width=80, DialogResult=DialogResult.Cancel };
                 dialog.Controls.Add(test); dialog.Controls.Add(ledger); dialog.Controls.Add(cancelEdit); dialog.Controls.Add(message); dialog.Controls.Add(save); dialog.Controls.Add(cancel);
-                dialog.Controls.Add(import);
-                bool importing=false;
-                dialog.FormClosing += delegate(object sender,FormClosingEventArgs e) { if(importing) e.Cancel=true; };
-                import.Click += async delegate
-                {
-                    SharedInventoryClient connection=null; bool adopted=false;
-                    importing=true; import.Enabled=test.Enabled=ledger.Enabled=save.Enabled=cancel.Enabled=cancelEdit.Enabled=url.Enabled=token.Enabled=enabled.Enabled=false;
-                    try
-                    {
-                        if(shared!=null && shared.Pending>0) throw new IOException("Resolve pending shared changes before replacing totals.");
-                        if(String.IsNullOrWhiteSpace(commander) || !File.Exists(InventoryPath())) throw new IOException("No saved local inventory exists for your configured commander.");
-                        var local=ParseInventory(File.ReadAllText(InventoryPath()));
-                        connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true);
-                        if(connection.Pending>0) throw new IOException("This connection has pending changes. Resolve them before syncing.");
-                        await connection.Sync();
-                        if(connection.Role!="admin") throw new IOException("Only a shared group admin can replace the totals.");
-                        var changes=SharedInventoryClient.ReplacementChanges(local,connection.Stock,connection.Versions);
-                        if(changes.Count==0) { message.Text="Shared totals already match local inventory."; return; }
-                        using(var preview=new Form { Text="Replace shared inventory — "+connection.Group, Size=new Size(540,440), Font=Font, StartPosition=FormStartPosition.CenterParent })
-                        {
-                            var explanation=new Label { Dock=DockStyle.Top, Height=65, Padding=new Padding(8), Text="Replace shared totals with saved local counts for "+commander+".\nShared commodities absent locally become zero. Your local copy is kept.\nEach correction is recorded in the shared ledger." };
-                            var lines=changes.Select(x=>CommodityName(x.commodity)+": "+(connection.Stock.ContainsKey(x.commodity)?connection.Stock[x.commodity]:0).ToString("N0")+" → "+x.amount.ToString("N0")+" t").ToArray();
-                            var contents=new TextBox { Multiline=true, ReadOnly=true, Dock=DockStyle.Fill, ScrollBars=ScrollBars.Vertical, Lines=lines };
-                            var buttons=new FlowLayoutPanel { Dock=DockStyle.Bottom, Height=38, FlowDirection=FlowDirection.RightToLeft };
-                            var confirm=new Button { Text="Replace totals", Width=125, DialogResult=DialogResult.OK };
-                            var abort=new Button { Text="Cancel", Width=90, DialogResult=DialogResult.Cancel };
-                            buttons.Controls.Add(confirm); buttons.Controls.Add(abort); preview.Controls.Add(contents); preview.Controls.Add(explanation); preview.Controls.Add(buttons); preview.CancelButton=abort; ApplyDialogPalette(preview);
-                            if(preview.ShowDialog(dialog)!=DialogResult.OK) return;
-                        }
-                        connection.SaveSettings(); connection.Enqueue(changes);
-                        if(shared!=null) shared.Dispose(); shared=connection; adopted=true; sharedConfigFailed=false;
-                        enabled.Checked=true; LoadInventory(); ResetCargoTracker();
-                        await SyncShared();
-                        message.Text=shared.Pending==0?"Local counts synced. Shared mode is now enabled.":"Sync queued: "+shared.Pending+" remaining. Check shared status.";
-                    }
+                test.Click += async delegate {
+                    try { using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true)) { await connection.Sync(); message.Text="Connected: "+connection.Group+" · "+connection.Role+" · schema 2"; } }
                     catch(Exception ex) { message.Text=ex.Message; }
-                    finally
-                    {
-                        if(connection!=null && !adopted) connection.Dispose();
-                        importing=false; if(!dialog.IsDisposed) { import.Enabled=test.Enabled=ledger.Enabled=save.Enabled=cancel.Enabled=url.Enabled=token.Enabled=enabled.Enabled=true; cancelEdit.Enabled=shared!=null && shared.Blocked; }
-                    }
                 };
-                test.Click += async delegate
-                {
-                    test.Enabled=false; save.Enabled=false;
-                    try { using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true)) { var data=await connection.Request("inventory"); message.Text="Connected: "+data["groupId"]+" · "+data["role"]; } }
-                    catch(Exception ex) { message.Text=ex.Message; }
-                    finally { if(!dialog.IsDisposed) { test.Enabled=true; save.Enabled=true; } }
-                };
-                ledger.Click += async delegate
-                {
-                    ledger.Enabled=false;
-                    try
-                    {
-                        using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true))
-                        {
-                            var data=await connection.Request("ledger?after=0");
-                            using(var view=new Form { Text="Shared ledger — first 200 entries", Size=new Size(740,440), StartPosition=FormStartPosition.CenterParent, Font=Font })
-                            {
-                                var text=new TextBox { Multiline=true, ReadOnly=true, Dock=DockStyle.Fill, ScrollBars=ScrollBars.Both, WordWrap=false };
-                                var lines=new List<string>();
-                                foreach(var item in (object[])data["transactions"]) { var row=(Dictionary<string,object>)item; lines.Add(row["created_at"]+" | "+row["player"]+" | "+row["commodity"]+" | "+row["operation"]+" "+row["amount"]+" | "+row["before_balance"]+" → "+row["after_balance"]+" | "+row["source"]); }
-                                text.Lines=lines.ToArray(); view.Controls.Add(text); ApplyDialogPalette(view); view.ShowDialog(dialog);
-                            }
+                ledger.Click += async delegate {
+                    try { using(var connection=new SharedInventoryClient(Path.GetDirectoryName(settings),url.Text,token.Text,true)) {
+                        var response=await connection.Request("v2/ledger?after=0");
+                        using(var view=new Form { Text="Shared carrier ledger — first 200 entries",Size=new Size(800,450),StartPosition=FormStartPosition.CenterParent,Font=Font }) {
+                            var contents=new TextBox { ReadOnly=true,Multiline=true,Dock=DockStyle.Fill,ScrollBars=ScrollBars.Both,WordWrap=false };
+                            contents.Lines=((object[])response["transactions"]).Cast<Dictionary<string,object>>().Select(x=>Convert.ToString(x["created_at"])+" · "+Convert.ToString(x["player"])+" · "+Convert.ToString(x["carrier_id"])+" · "+Convert.ToString(x["commodity"])+" · "+Convert.ToString(x["operation"])+" "+Convert.ToString(x["amount"])).ToArray();
+                            view.Controls.Add(contents); ApplyDialogPalette(view); view.ShowDialog(dialog);
                         }
-                    }
-                    catch(Exception ex) { message.Text=ex.Message; }
-                    finally { if(!dialog.IsDisposed) ledger.Enabled=true; }
+                    } } catch(Exception ex) { message.Text=ex.Message; }
                 };
                 cancelEdit.Click += delegate { if(shared!=null && shared.CancelBlockedManual()) { cancelEdit.Enabled=false; message.Text="Conflicted edit cancelled. Refresh before correcting stock."; } };
                 save.Click += delegate
@@ -971,7 +966,7 @@ wine|Legal Drugs|Wine";
         {
         using (var dialog = new Form { Text = "ColonizationNeeds settings", Size = new Size(410, 600), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, Font = Font })
         {
-            var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360 };
+            var name = new TextBox { Text = commander, Left = 15, Top = 42, Width = 360, ReadOnly = profiles != null && profiles.Active != null };
             var key = new TextBox { Text = apiKey, Left = 15, Top = 100, Width = 360, UseSystemPasswordChar = true };
             dialog.Controls.Add(new Label { Text = "Raven Colonial commander name (account identifier)", Left = 15, Top = 18, Width = 370 });
             dialog.Controls.Add(name);
@@ -1004,7 +999,7 @@ wine|Legal Drugs|Wine";
             save.Click += delegate
             {
                 if (String.IsNullOrWhiteSpace(name.Text)) { MessageBox.Show(dialog, "Enter your commander name as shown on Raven Colonial."); return; }
-                if (ravenBusy || constructionBusy) { MessageBox.Show(dialog, "A Raven operation is finishing. Try Save again shortly."); return; }
+                if (ravenBusy || constructionBusy || sharedBusy) { MessageBox.Show(dialog, "An account operation is finishing. Try Save again shortly."); return; }
                 if (report.Checked && String.IsNullOrWhiteSpace(key.Text)) { MessageBox.Show(dialog, "Enter your Raven Colonial API key to enable delivery reporting."); return; }
                 if (key.Text.Contains("\r") || key.Text.Contains("\n")) { MessageBox.Show(dialog, "The API key must be a single line."); return; }
                 try
@@ -1016,7 +1011,16 @@ wine|Legal Drugs|Wine";
                     windowOpacity = opacitySlider.Value;
                     try { SaveTrackingSettings(selectedCargoMode, folder.Text.Trim()); } catch { windowOpacity = previousOpacity; throw; }
                     journalFolder = folder.Text.Trim();
-                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); reportDeliveries = report.Checked; dialog.DialogResult = DialogResult.OK;
+                    commander = name.Text.Trim(); apiKey = key.Text.Trim(); reportDeliveries = report.Checked;
+                    if (profiles != null && profiles.Active == null)
+                    {
+                        profiles.ImportLegacy();
+                        settings = Path.Combine(profiles.Folder(profiles.Active), "settings.json");
+                        if (shared != null) shared.Dispose();
+                        shared = SharedInventoryClient.Load(Path.GetDirectoryName(settings));
+                        RefreshPlayers();
+                    }
+                    dialog.DialogResult = DialogResult.OK;
                 }
                 catch { MessageBox.Show(dialog, "Settings could not be saved. Check access to your Local AppData folder."); }
             };
@@ -1150,12 +1154,44 @@ wine|Legal Drugs|Wine";
         return result;
     }
     readonly HashSet<string> historicalRequirementsChecked = new HashSet<string>();
+    // Original build requirements describe a project, not a player's inventory or deliveries.
+    public static Dictionary<string, long> ReadOtherProfileRequirements(string root, string buildId)
+    {
+        var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var conflicts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!Directory.Exists(root)) return result;
+        foreach (string file in Directory.GetFiles(root, "inventory-*.requirements.json", SearchOption.AllDirectories))
+        {
+            Dictionary<string, Dictionary<string, long>> saved;
+            try { saved = new JavaScriptSerializer().Deserialize<Dictionary<string, Dictionary<string, long>>>(File.ReadAllText(file)); }
+            catch (IOException) { continue; } catch (UnauthorizedAccessException) { continue; } catch (ArgumentException) { continue; } catch (InvalidOperationException) { continue; }
+            if (saved == null) continue;
+            foreach (var entry in saved)
+            {
+                int separator = entry.Key.LastIndexOf('|');
+                if (separator < 0 || !String.Equals(entry.Key.Substring(separator + 1), buildId, StringComparison.OrdinalIgnoreCase) || entry.Value == null) continue;
+                foreach (var pair in entry.Value)
+                {
+                    string commodity = JournalCargoTracker.Canonical(pair.Key); long previous;
+                    if (pair.Value < 0 || commodity.Length == 0 || conflicts.Contains(commodity)) continue;
+                    if (result.TryGetValue(commodity, out previous) && previous != pair.Value) { result.Remove(commodity); conflicts.Add(commodity); }
+                    else result[commodity] = pair.Value;
+                }
+            }
+        }
+        return result;
+    }
     async Task RecoverOriginalRequirements()
     {
         var wanted = new List<string>();
         foreach (var project in deliveryProjects)
         {
             string key = commander.Trim().ToLowerInvariant() + "|" + project.Key;
+            Dictionary<string, long> existing;
+            if (!projectRequirements.TryGetValue(key, out existing)) existing = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds");
+            foreach (var pair in ReadOtherProfileRequirements(root, project.Key)) if (!existing.ContainsKey(pair.Key)) existing[pair.Key] = pair.Value;
+            projectRequirements[key] = existing;
             string market = project.Value.ContainsKey("marketId") ? Convert.ToString(project.Value["marketId"]) : "";
             Dictionary<string, long> totals;
             var cargo = (Dictionary<string, object>)project.Value["commodities"];
@@ -1299,8 +1335,8 @@ wine|Legal Drugs|Wine";
                 status.Text = projectCount + " project(s) · Updated " + DateTime.Now.ToString("HH:mm:ss");
         }
         catch (TaskCanceledException) { status.Text = "Request timed out. " + (shownId == id ? "Displayed data is stale." : "Try Refresh again."); }
-        catch (Exception ex) { status.Text = ex.Message + (shownId == id ? " Displayed data is stale." : ""); }
-        finally { busy = false; if (!IsDisposed) { refresh.Enabled = true; configure.Enabled = true; selection.Enabled = true; editInventory.Enabled = displayedCargo != null; } }
+        catch (Exception ex) { status.Text = "Project refresh error: " + ex.Message + (shownId == id ? " Displayed data is stale." : ""); }
+        finally { busy = false; if (!IsDisposed) { refresh.Enabled = true; configure.Enabled = true; selection.Enabled = true; editInventory.Enabled = carrierInventory != null; } }
     }
 
     [STAThread]
@@ -1308,7 +1344,7 @@ wine|Legal Drugs|Wine";
     {
         if (args.Length > 0 && args[0] == "--self-test")
         {
-            JournalCargoTracker.RunTests();
+            PlayerProfiles.RunTests(); JournalCargoTracker.RunTests(); CarrierTests.RunTests();
             var fullDepot = ReadJson("{\"ResourcesRequired\":[{\"Name\":\"$liquidoxygen_name;\",\"RequiredAmount\":1553,\"ProvidedAmount\":1151}]}") as Dictionary<string, object>;
             var original = OriginalRequirements(fullDepot, null, null);
             if (original["liquidoxygen"] != 1553) throw new Exception("Required incorrectly uses remaining amount");

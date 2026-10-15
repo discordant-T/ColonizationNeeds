@@ -1,47 +1,15 @@
-# ColonizationNeeds member setup
+# Member setup — 1.28
 
-Current stable release: **1.25**. See [release notes and upgrading](RELEASE-NOTES.md) and the [Raven construction workflow](RAVEN-WORKFLOW.md).
+1. Close the old app and run the supplied 1.28 executable. Your existing settings and keys are retained; do not move Legacy stock again after upgrading.
+2. In Settings enter your exact Raven commander, your own Raven key when needed, and your game's journal folder. Refresh and select your individual project or All active projects.
+3. Open Settings → Shared inventory. Use the leader's HTTPS service URL and your own player token; enable sharing, test and Save. The leader's admin configures carriers under Carriers / review; you receive that registry automatically. Each player needs their own identity/token.
+4. Select Automatic. Before buying carrier supplies at a station, enable Collecting for carriers and choose a carrier or Either carrier. Leave it off for personal purchases. The choice persists per player. Changing it affects future purchases, not existing loads.
+5. Watch Stock, Inbound and Outbound. Inbound becomes Stock when deposited; Stock becomes Outbound when withdrawn. A delivery clears your cargo and updates To deliver through construction observations/Raven. To collect subtracts all three supplies. Either-carrier Inbound appears only in All carriers.
 
-Your squadron leader supplies the application, the shared server URL, and your individual player access token. You do not need Cloudflare, PowerShell, or the leader's owner token.
+Members can Add/Remove stock and clear their own Inbound or Outbound in Edit inventory. Shared Set total, Legacy migration and carrier configuration require an admin. A rejected pending stock edit can be cancelled under Settings → Shared inventory → Cancel conflicted edit. Synchronization is automatic; no separate Sync button is required.
 
-## Install
+Run the correct Player profile for the commander currently playing. Configure Raven reporting only if you want this app to upload confirmed contributions/depot/completion; avoid another uploader for that commander. Start planned construction remains separate. See CARRIER-TRACKING.md for mixed cargo, losses, missing events and corrections, and RAVEN-WORKFLOW.md for construction setup/reporting.
 
-1. Download the application from the leader or open the [public GitHub repository](https://github.com/discordant-T/ColonizationNeeds), choose **Code > Download ZIP**, and extract it. No GitHub account or invitation is needed.
-2. Run `bin\ColonizationNeeds.exe` from the extracted project. If the leader sent only the executable, run that file directly from your chosen folder.
-3. Windows with .NET Framework 4.8 is required, normally available on Windows 10/11.
+**What the collection switch controls:** it marks new ordinary-station purchases as Inbound while Automatic tracking is active. Leave it off for personal purchases/trading; you do not need to turn it off to deliver. Deposits to a configured carrier always increase Stock, even with the switch off, and carrier withdrawals/deliveries still track normally. Turning it on later does not retroactively mark cargo already aboard. Turning it off does not erase existing loads. Any personal/trading goods deposited on a configured carrier also count as Stock.
 
-## Configure your projects and shared stock
-
-1. Open **Settings**. Enter your own commander name exactly as shown on Raven Colonial and your Raven API key if required. Make sure the intended projects are active/available for your Raven account. Shared stock does not automatically share the leader's project list.
-2. Check the journal folder, normally `%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`. Your game commander must match the configured commander for cargo tracking.
-3. Open **Shared inventory**. Enter the leader's root server URL and **your player token**. Do not append `/health` to the URL.
-4. Click **Test connection** and confirm the group matches the leader's group. Enable **Use shared inventory**, then save settings.
-5. Click **Refresh** to load your Raven projects. Shared carrier stock updates approximately every five seconds; the optional minute refresh updates Raven requirements separately.
-
-Keep your token private. Your own Raven key, your player token, and the leader's owner token are different credentials. Enter your credentials again on another computer; encrypted settings files are tied to the Windows user who saved them.
-
-## Optional delivery reporting
-
-Each player can enable **Settings > Report deliveries to Raven Colonial** with their own Raven API key, replacing SrvSurvey's delivery-reporting role. Disable delivery reporting in other tools first. Keep the application running during deliveries; it reports confirmed contribution events and construction-depot requirements in all cargo modes. Shared stock transactions and manual edits are not uploaded as project deliveries. No historical deliveries are imported. If a report needs review, check Raven contribution history and use **Settings > Delivery reports** to mark it recorded or retry only if absent.
-
-## Use the inventory
-
-- **Manual:** only your manual edits change stock.
-- **Collect:** new cargo loaded onto your ship adds to tracked stock, assuming you will deposit it into the carrier.
-- **Colonize:** new cargo loaded onto your ship deducts from stock, assuming it came from the carrier.
-
-Choose the mode before loading cargo and keep the application running. Existing cargo at startup is not counted. These modes do not verify an actual carrier deposit, so correct exceptions manually and follow the squadron's agreed rules. Run one tracker for your game session.
-
-Double-click a commodity or click **Edit inventory** to **Add** or **Remove** tonnes. Admins can also **Set total**. Ask an admin to reconcile the actual carrier stock when needed. Do not use **Sync local to shared** to combine your personal stock: that admin action replaces the group's totals.
-
-Required comes from your selected Raven projects: outstanding quantities in Manual/Collect, fixed original totals in Colonize. Original totals can be recovered read-only from your commander/site journals without replaying deliveries or inventory changes. Carrier stock comes from the shared group. In Manual/Collect, Still needed is the remaining shortage after that stock is subtracted. In Colonize, it shows what still needs delivering, bright cyan while outstanding and green at zero. The next construction-depot journal snapshot updates your matching project, while Raven refreshes provide updates from other players. Deliveries do not deduct carrier stock a second time. Local mode is a separate inventory and does not update the group.
-
-If a shared update remains pending, read the status/error and let it finish before switching accounts or computers. If connection fails, check your server URL and token with the leader. You do not need to set up another backend.
-
-## Start and complete Raven constructions (version 1.25)
-
-Save your own Raven key, dock at the new site and open Construction Services. Use **Settings > Start planned construction** to select the matching planned name/body and exact type, then **Start / verify** and refresh. All cargo modes work. The reporting checkbox is not required for this explicit setup; Raven permissions are separate from Cloudflare admin/player roles. Resolve type variants ending in `?` in Raven first. Setup creates or reuses the project, links your commander and marks the plan Building. Agree with the squadron who starts each site; other commanders/carriers can be linked in Raven afterward.
-
-Enable **Report deliveries to Raven Colonial** for subsequent contribution, depot and completion reporting. Keep the app running for the game's completion event; zero remaining cargo alone is insufficient. Completion records appear in Delivery reports. Pending completion resumes with a server check after interruption, and final credits must finish or be reviewed first. Historical completion events are not backfilled. Disable overlapping reporting in SrvSurvey/BGS-Tally/other tools to avoid duplicate credits.
-
-This release requires no Cloudflare backend or schema update. Close the app before replacing the executable; saved settings and inventory are outside its folder. Full setup and recovery steps are in [the Raven workflow](RAVEN-WORKFLOW.md).
+For a smaller overlay choose **View → Compact view**. Use Controls to reveal player/tracking/destination settings and click the bottom status strip for details. Columns/totals can be hidden through View; accounting is unchanged. These preferences are saved independently per player. See [Compact view](COMPACT-VIEW.md).
