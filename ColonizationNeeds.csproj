@@ -6,6 +6,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>ColonizationNeeds</RootNamespace>
     <AssemblyName>ColonizationNeeds</AssemblyName>
+    <ApplicationIcon>assets\ColonizationNeeds.ico</ApplicationIcon>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <OutputPath>bin\</OutputPath>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>

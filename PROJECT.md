@@ -4,6 +4,7 @@ Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/Colonization
 
 | Component | Responsibility |
 |---|---|
+| assets/ | Carrier icon PNG/ICO and artwork source/preparation notes; embedded by both build methods. |
 | src/ColonizationNeeds.cs | UI, project requirements, original-total recovery, profile integration, column arithmetic and settings. |
 | src/CompactUI.cs | Saved Compact/Full layout, optional columns, collapsible controls and always-visible status alerts. |
 | src/CarrierUI.cs | Carrier configuration/review, stock/cargo corrections, collection intent/destination and shared/local views. |

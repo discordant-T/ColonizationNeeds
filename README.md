@@ -1,8 +1,10 @@
-# ColonizationNeeds 1.28.2
+# ColonizationNeeds 1.28.3
 
 Windows Forms application for Elite Dangerous colonization supplies, with local or shared tracking across a squadron carrier, a personal carrier and multiple commanders on one PC.
 
-Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.2**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
+Version **1.28.3** adds a carrier icon to the executable, window and taskbar. Both build methods embed `assets/ColonizationNeeds.ico`; no separate icon file is needed when running the executable. Artwork source and preparation are documented in [assets/README.md](assets/README.md).
+
+Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.3**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
 
 The table is **Commodity | To deliver | Stock | Inbound | Outbound | To collect**. To collect is `max(0, To deliver - Stock - Inbound - Outbound)` per commodity. Hover the headings for definitions.
 

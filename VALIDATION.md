@@ -1,3 +1,9 @@
+# Desktop validation — 1.28.3
+
+The full Windows build and accounting, transit, Inbound, shared client, carrier setup, quiet status, compact UI, credential encryption and Raven reporting checks passed. Confirmed file/product version 1.28.3 and extracted the carrier icon from the built executable for visual inspection. The ICO contains 16, 24, 32, 48, 64, 128 and 256 pixel images and the source PNG has transparent pixels. Both build paths point to the same asset; only build.ps1 was executed. No backend deployment or live inventory changes were needed.
+
+---
+
 # Desktop validation — 1.28.2
 
 QuietStatusUITests verifies saved-cursor startup retains the observed commander without new rows, Shutdown produces quiet Idle, repeated stock refresh/poll cycles produce no text changes or duplicate log entries, a real different commander remains a stable visible warning, stock refresh cannot clear a tracking failure and a successful matching poll clears it. The full Windows accounting/profile/DPAPI/shared-client/Compact UI/Raven regression suite passed. Backend and database are unchanged.
