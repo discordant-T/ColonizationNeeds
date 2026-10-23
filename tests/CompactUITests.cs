@@ -56,6 +56,26 @@ class CompactUITests
             Check(list.Bottom<=((Control)Get(form,"totals")).Top && ((Control)Get(form,"totals")).Bottom<=footer.Top,"Table, totals and status overlap");
             Check(list.Columns.Cast<ColumnHeader>().Sum(x=>x.Width)<=list.ClientSize.Width,"Normal quantities require horizontal scrolling");
             using(var bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(0,0,bitmap.Width,bitmap.Height));bitmap.Save(args[0]);}
+            // A resize may fire while native ListView rows are being replaced.
+            string unchanged=new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(stock.Data);
+            Set(form,"updatingCommodityRows",true);
+            try {list.Items.Add(new ListViewItem("partially hosted row"));Call(form,"FitViewColumns");}
+            finally {list.Items.RemoveAt(list.Items.Count-1);Set(form,"updatingCommodityRows",false);}
+            int reentrantFits=0;
+            ColumnWidthChangedEventHandler nested=delegate {reentrantFits++;Call(form,"FitViewColumns");};
+            list.ColumnWidthChanged+=nested;
+            for(int cycle=0;cycle<30;cycle++) {
+                Call(form,"ClearCommodities");
+                Set(form,"displayedCargo",cycle%2==0?new Dictionary<string,object>{{"steel",16260L}}:new Dictionary<string,object>{{"steel",16260L},{"water",200L}});
+                Call(form,"RenderCommodities");
+                form.Size=new Size(cycle%2==0?510:530,440);Application.DoEvents();
+                Check(list.Columns.Count==6 && list.Columns[3].Width>0 && list.Columns[4].Width>0,"Resize lost Inbound/Outbound columns");
+                var checkedSteel=list.Items.Cast<ListViewItem>().Single(x=>Convert.ToString(x.Tag)=="steel");
+                Check(checkedSteel.SubItems[2].Text=="30" && checkedSteel.SubItems[3].Text=="100" && checkedSteel.SubItems[5].Text=="16,130","Project switch changed stock/inbound accounting");
+            }
+            list.ColumnWidthChanged-=nested;
+            Check(reentrantFits>0,"Reentrant fitting scenario not exercised");
+            Check(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(stock.Data)==unchanged,"Column fitting changed saved carrier or transit data");
             form.Close();
         }} finally {foreach(var sub in Directory.GetDirectories(root)){foreach(var file in Directory.GetFiles(sub))File.Delete(file);Directory.Delete(sub);}foreach(var file in Directory.GetFiles(root))File.Delete(file);Directory.Delete(root);}
         Console.WriteLine("Compact UI checks passed: narrow layout, collapsible controls/status, visible errors, hidden columns, arithmetic and profile persistence.");

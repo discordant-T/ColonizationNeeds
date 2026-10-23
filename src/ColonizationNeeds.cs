@@ -13,9 +13,9 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.28.3.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.28.3.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.28.3 Carrier icon")]
+[assembly: System.Reflection.AssemblyVersion("1.28.4.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.28.4.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.28.4 Column resize fix")]
 
 public partial class ColonizationNeeds : Form
 {
@@ -667,7 +667,11 @@ wine|Legal Drugs|Wine";
 
     void ClearCommodities()
     {
-        displayedCargo = null; list.Items.Clear(); list.Groups.Clear(); totals.Text = "Totals (t): —"; editInventory.Enabled = carrierInventory != null;
+        displayedCargo = null;
+        updatingCommodityRows=true;
+        try {list.BeginUpdate();try {list.Items.Clear();list.Groups.Clear();}finally {list.EndUpdate();}}
+        finally {updatingCommodityRows=false;}
+        totals.Text = "Totals (t): —"; editInventory.Enabled = carrierInventory != null;
     }
 
     public static long Remaining(long required, long held)
@@ -737,7 +741,7 @@ wine|Legal Drugs|Wine";
         int anchorIndex = anchor == null ? 0 : anchor.Index;
         int scrollPosition = list.IsHandleCreated ? GetScrollPos(list.Handle, 1) : 0;
         bool sameRows = list.Items.Count == rows.Count && list.Items.Cast<ListViewItem>().Select(x => Convert.ToString(x.Tag)).SequenceEqual(rows.Select(x => Convert.ToString(x.Tag)));
-        list.BeginUpdate();
+        updatingCommodityRows=true; list.BeginUpdate();
         try
         {
             if (sameRows)
@@ -757,7 +761,7 @@ wine|Legal Drugs|Wine";
             foreach (ListViewItem row in list.Items) if (Convert.ToString(row.Tag) == selected) row.Selected = true;
             }
         }
-        finally { list.EndUpdate(); }
+        finally { try {list.EndUpdate();}finally {updatingCommodityRows=false;} }
         if (!sameRows && anchorKey != null && list.Items.Count > 0)
         {
             var restored = list.Items.Cast<ListViewItem>().FirstOrDefault(x => Convert.ToString(x.Tag) == anchorKey) ?? list.Items[Math.Min(anchorIndex, list.Items.Count - 1)];

@@ -1,5 +1,11 @@
 # Release history and upgrade coverage
 
+## 1.28.4 — Project-switch column resizing fix
+
+Fixes the reported NullReferenceException in FitViewColumns during ListView SizeChanged by deferring fitting during row clear/replacement, skipping transient or incomplete rows, and preventing recursive fitting while column widths change. Numeric text is measured before applying native column changes. This package is based on the archived 1.28.3 source whose executable SHA256 exactly matches the user's desktop 1.28.3 executable. Six columns, carrier stock, Inbound, Outbound, transit, profiles and reporting behavior are preserved; no backend or runtime data migration is required.
+
+Validation: complete build/self-test, carrier/transit/inbound/shared/reporter and UI suites pass. Compact UI tests now include 30 alternating row-set rebuilds and resizes, nested column-fit callbacks, partial-row deferral and unchanged saved carrier/transit data. Desktop executable was not replaced automatically.
+
 ## 1.28.3 — Carrier icon
 
 - Added a multi-resolution Windows icon based on the supplied white Javelin-Class Carrier image, embedded by both build.ps1 and the IDE project.
