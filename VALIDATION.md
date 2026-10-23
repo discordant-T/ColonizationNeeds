@@ -1,3 +1,7 @@
+# Desktop validation — 1.28.4
+
+Rebuilt and passed all Windows self-tests, credential encryption, carrier/transit/Inbound/shared-client, carrier-setup, quiet-status, compact UI and Raven-reporting checks before publication. Compact UI regression coverage includes 30 row rebuild/resize cycles, nested fitting callbacks, partial rows and unchanged carrier/transit data. Only the column-resizing fix is included; the later player-switch responsiveness work is excluded. No backend deployment or runtime migration.
+
 # Desktop validation — 1.28.3
 
 The full Windows build and accounting, transit, Inbound, shared client, carrier setup, quiet status, compact UI, credential encryption and Raven reporting checks passed. Confirmed file/product version 1.28.3 and extracted the carrier icon from the built executable for visual inspection. The ICO contains 16, 24, 32, 48, 64, 128 and 256 pixel images and the source PNG has transparent pixels. Both build paths point to the same asset; only build.ps1 was executed. No backend deployment or live inventory changes were needed.

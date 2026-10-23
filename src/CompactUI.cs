@@ -26,7 +26,7 @@ public partial class ColonizationNeeds
     readonly Panel compactFooter=new Panel {Dock=DockStyle.Bottom,Height=26};
     readonly ContextMenuStrip viewMenu=new ContextMenuStrip();
     readonly ToolTip compactHelp=new ToolTip {AutoPopDelay=15000};
-    bool viewReady,applyingView;
+    bool viewReady,applyingView,updatingCommodityRows,fittingViewColumns;
 
     void InitializeCompactUI(Panel header,Panel entry,Panel playerRow,FlowLayoutPanel options,FlowLayoutPanel mode,FlowLayoutPanel inbound)
     {
@@ -143,18 +143,32 @@ public partial class ColonizationNeeds
     }
     void FitViewColumns()
     {
-        if(list.Columns.Count<6)return;
-        bool compact=viewPreferences.compact;
-        string[] names=compact?new[]{"Commodity","Need","Stock","In","Out","Collect"}:new[]{"Commodity","To deliver","Stock","Inbound","Outbound","To collect"};
-        int[] widths=compact?new[]{0,66,66,60,60,66}:new[]{0,88,76,76,76,88};
-        // Grow numeric columns if the displayed quantities require it; never truncate amounts.
-        for(int i=1;i<6;i++) {
-            bool visible=(i!=3||viewPreferences.inbound)&&(i!=4||viewPreferences.outbound);
-            list.Columns[i].Text=names[i];
-            int measured=widths[i];if(visible)foreach(ListViewItem row in list.Items)measured=Math.Max(measured,TextRenderer.MeasureText(row.SubItems[i].Text,list.Font).Width+12);
-            list.Columns[i].Width=visible?measured:0;
-        }
-        list.Columns[0].Width=Math.Max(compact?90:130,list.ClientSize.Width-list.Columns.Cast<ColumnHeader>().Skip(1).Sum(x=>x.Width)-SystemInformation.VerticalScrollBarWidth-4);
+        // Native SizeChanged can arrive synchronously inside Clear/AddRange/EndUpdate.
+        // Do not enumerate ListView's transient row map, or recurse while changing widths.
+        if(updatingCommodityRows || fittingViewColumns || IsDisposed || list.IsDisposed || viewPreferences==null || list.Columns.Count<6)return;
+        fittingViewColumns=true;
+        try {
+            bool compact=viewPreferences.compact;
+            string[] names=compact?new[]{"Commodity","Need","Stock","In","Out","Collect"}:new[]{"Commodity","To deliver","Stock","Inbound","Outbound","To collect"};
+            int[] widths=compact?new[]{0,66,66,60,60,66}:new[]{0,88,76,76,76,88};
+            // Measure everything before applying native column changes, which can resize the view.
+            foreach(ListViewItem row in list.Items) {
+                if(row==null)continue;
+                for(int i=1;i<Math.Min(6,row.SubItems.Count);i++)
+                    if((i!=3||viewPreferences.inbound)&&(i!=4||viewPreferences.outbound))
+                        widths[i]=Math.Max(widths[i],TextRenderer.MeasureText(row.SubItems[i].Text,list.Font).Width+12);
+            }
+            int numericWidth=0;
+            for(int i=1;i<6;i++) {
+                bool visible=(i!=3||viewPreferences.inbound)&&(i!=4||viewPreferences.outbound);
+                int width=visible?widths[i]:0;
+                if(list.Columns[i].Text!=names[i])list.Columns[i].Text=names[i];
+                if(list.Columns[i].Width!=width)list.Columns[i].Width=width;
+                numericWidth+=width;
+            }
+            int commodityWidth=Math.Max(compact?90:130,list.ClientSize.Width-numericWidth-SystemInformation.VerticalScrollBarWidth-4);
+            if(list.Columns[0].Width!=commodityWidth)list.Columns[0].Width=commodityWidth;
+        }finally {fittingViewColumns=false;}
     }
     void UpdateCompactStatus()
     {
