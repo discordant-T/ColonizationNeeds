@@ -15,6 +15,7 @@ public sealed class JournalCargoTracker
     public Action<string,string,string,string,Dictionary<string,object>> Movement;
     string currentCommander = "", currentVessel = "Ship";
     string currentMarket = "", currentSystem = "";
+    public bool HasPending { get; private set; }
     public string CurrentCommander { get { return currentCommander; } }
     public JournalCargoTracker(string folder)
     {
@@ -207,6 +208,12 @@ public sealed class JournalCargoTracker
     }
     public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply, Action<string, string, Dictionary<string, long>> depot, Action<string, string, string, Dictionary<string, object>> report)
     {
+        Poll(expectedCommander, apply, depot, report, Int32.MaxValue);
+    }
+    public void Poll(string expectedCommander, Action<Dictionary<string, long>> apply, Action<string, string, Dictionary<string, long>> depot, Action<string, string, string, Dictionary<string, object>> report, int maxLines)
+    {
+        if (maxLines < 1) throw new ArgumentOutOfRangeException("maxLines");
+        HasPending = false; int processed = 0;
         if (!Directory.Exists(folder)) throw new IOException("Journal folder not found. Choose it in Settings.");
         foreach (var file in Directory.GetFiles(folder, "Journal.*.log").OrderBy(File.GetLastWriteTimeUtc))
         {
@@ -225,7 +232,10 @@ public sealed class JournalCargoTracker
                     int next;
                     while ((next = stream.ReadByte()) >= 0)
                     {
+                        // Stop between durable events, never acknowledging a partial line.
+                        if (processed >= maxLines) { HasPending = true; return; }
                         if (next != '\n') { line.WriteByte((byte)next); continue; }
+                        processed++;
                         if (cursor.SkipPartial) { cursor.SkipPartial = false; try { CommitOffset(cursor,stream.Position); } catch { cursor.SkipPartial=true; throw; } line.SetLength(0); continue; }
                         string text = Encoding.UTF8.GetString(line.ToArray()).Trim(); line.SetLength(0);
                         var data = text.Length > 0 ? Parse(text) : null;

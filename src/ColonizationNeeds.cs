@@ -13,9 +13,9 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.28.4.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.28.4.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.28.4 Column resize fix")]
+[assembly: System.Reflection.AssemblyVersion("1.28.6.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.28.6.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.28.6 Shared read optimization")]
 
 public partial class ColonizationNeeds : Form
 {
@@ -364,7 +364,7 @@ wine|Legal Drugs|Wine";
                 SetTrackingProblem("Mode unchanged: "+ex.Message);
             }
         };
-        cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargo(); } catch (Exception ex) { SetTrackingProblem(ex.Message); } } };
+        cargoTimer.Tick += delegate { if (!editingInventory) { try { PollCargoBatch(128); } catch (Exception ex) { SetTrackingProblem(ex.Message); } } };
         sharedTimer.Tick += async delegate { if (!editingInventory) { await SyncShared(); await SyncRaven(); } };
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
@@ -462,6 +462,8 @@ wine|Legal Drugs|Wine";
         if (!CanSwitchPlayer()) { RefreshPlayers(); status.Text = "Wait for the current operation to finish before switching players."; return; }
         SharedInventoryClient candidate = null;
         switchingPlayer = true; editingInventory = true;
+        viewHeader.Enabled = false; list.Enabled = false;
+        status.Text = "Switching player — finishing saved journal events…";
         try
         {
             // Validate credentials and connection before leaving the active account.
@@ -482,7 +484,7 @@ wine|Legal Drugs|Wine";
                 int percent; if (options.ContainsKey("opacity") && Int32.TryParse(options["opacity"], out percent)) nextOpacity = Math.Max(30, Math.Min(100, percent));
             }
             candidate = SharedInventoryClient.Load(Path.GetDirectoryName(nextSettings));
-            if (cargoTracker != null && commander.Length > 0) PollCargo();
+            if (cargoTracker != null && commander.Length > 0) await FlushCargoForPlayerSwitch();
             RememberViewSize();SaveViewPreferences();SaveWindowLocation(); profiles.Activate(next);
             if (ravenReporter != null) ravenReporter.Dispose(); ravenReporter = null; ravenReporterCommander = null;
             if (shared != null) shared.Dispose(); shared = candidate; candidate = null; sharedConfigFailed = false;
@@ -495,11 +497,19 @@ wine|Legal Drugs|Wine";
             depotBalances.Clear(); deliveryProjects.Clear(); projectRequirements.Clear(); historicalRequirementsChecked.Clear();
             updatingSelection = true; try { selection.Items.Clear(); } finally { updatingSelection = false; }
             ravenStatus.Text = "Raven reporting: " + (reportDeliveries ? "On" : "Off"); sharedStatus.Text = "";
-            Text = "ColonizationNeeds — " + commander; LoadInventory(); LoadInboundIntent(); ResetCargoTracker(); LoadViewPreferences(); RestoreWindowLocation(); RefreshPlayers();
+            Text = "ColonizationNeeds — " + commander; LoadInventory(); LoadInboundIntent();
+            // Only the isolated reader is created off-thread. All inventory/reporting
+            // callbacks remain on the UI thread and attached to the active profile.
+            string nextCursor = Path.Combine(Path.GetDirectoryName(settings), "carrier-journal-cursors.json");
+            try {
+                cargoTracker = await Task.Run(() => new JournalCargoTracker(nextFolder, nextCursor));
+                cargoTracker.Movement = TrackMovement; UpdateCargoStatus();
+            } catch (Exception ex) { cargoTracker = null; SetTrackingProblem(ex.Message); }
+            LoadViewPreferences(); RestoreWindowLocation(); RefreshPlayers();
             status.Text = "Player switched to " + commander + ".";
         }
         catch (Exception ex) { status.Text = "Player switch failed: " + ex.Message; RefreshPlayers(); return; }
-        finally { if (candidate != null) candidate.Dispose(); switchingPlayer = false; editingInventory = false; }
+        finally { if (candidate != null) candidate.Dispose(); switchingPlayer = false; editingInventory = false; viewHeader.Enabled = true; list.Enabled = true; }
         cargoTimer.Start(); await SyncShared(); await LoadProject();
     }
 
@@ -583,7 +593,19 @@ wine|Legal Drugs|Wine";
         if (mode == "Colonize") return Remaining(held, acquired);
         return held;
     }
+    async Task FlushCargoForPlayerSwitch()
+    {
+        do {
+            // Yield between batches without changing commander, stores or callbacks.
+            await Task.Delay(1);
+            PollCargoBatch(128);
+        } while (cargoTracker != null && cargoTracker.HasPending);
+    }
     void PollCargo()
+    {
+        PollCargoBatch(Int32.MaxValue);
+    }
+    void PollCargoBatch(int maxLines)
     {
         if(sharedConfigFailed) throw new IOException("Resolve unreadable Shared inventory settings before automatic tracking.");
         if (cargoTracker == null) ResetCargoTracker();
@@ -633,7 +655,7 @@ wine|Legal Drugs|Wine";
             EnsureRavenReporter();
             ravenReporter.Capture(identity, system, market, entry);
             ravenStatus.Text = ravenReporter.Status;
-        });
+        }, maxLines);
         trackingProblem="";
         RefreshCarrierStock();
     }

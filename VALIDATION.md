@@ -1,8 +1,12 @@
-# Desktop validation — 1.28.4
+# Desktop validation — 1.28.6
 
-Rebuilt and passed all Windows self-tests, credential encryption, carrier/transit/Inbound/shared-client, carrier-setup, quiet-status, compact UI and Raven-reporting checks before publication. Compact UI regression coverage includes 30 row rebuild/resize cycles, nested fitting callbacks, partial rows and unchanged carrier/transit data. Only the column-resizing fix is included; the later player-switch responsiveness work is excluded. No backend deployment or runtime migration.
+The release build passed the full Windows regression suites, including credential encryption, player switching, column resizing, accounting, transit, Inbound, shared client, compact UI and Raven reporting. Backend integration results are recorded below. Tests use isolated local data and mocked HTTP; no production database changes were made during publication.
 
-# Desktop validation — 1.28.3
+## Prior validation history
+
+# Desktop validation — 1.28.5
+
+The Windows build and all self-tests, credential encryption, accounting, transit, Inbound, shared-client, carrier-setup, quiet-status, compact-layout and Raven-reporting checks passed. The quiet-status UI regression additionally verifies that a 300-event outgoing journal backlog yields to window messages and reaches the correct durable offset. The reported user's exact frozen process was not available for stack inspection; this patch addresses blocking journal catch-up and reader initialization found in the player-switch path. Tests use isolated temporary profiles and do not modify live inventory or credentials.
 
 The full Windows build and accounting, transit, Inbound, shared client, carrier setup, quiet status, compact UI, credential encryption and Raven reporting checks passed. Confirmed file/product version 1.28.3 and extracted the carrier icon from the built executable for visual inspection. The ICO contains 16, 24, 32, 48, 64, 128 and 256 pixel images and the source PNG has transparent pixels. Both build paths point to the same asset; only build.ps1 was executed. No backend deployment or live inventory changes were needed.
 
@@ -31,3 +35,5 @@ InboundTests covers opted-in ordinary-station purchases, personal/unknown-contex
 Backend integration tests passed **99 HTTP assertions** plus direct balance/SQL checks using the real Worker and SQLite triggers. They cover member/admin/group isolation, two carriers, partial Inbound deposits with simultaneous Outbound, shared owner isolation, caps/losses, duplicates, delayed event arrival, old correction receipts, legacy lost acknowledgments and reconciliation cutoffs.
 
 No real in-game station purchase, carrier sale/transfer or construction delivery was performed by automated tests. A small live end-to-end cycle remains a user/game validation step. Read-only production preservation/capability checks and the actual deployed version are recorded in DEPLOYMENT.md. No stock or cargo test mutations are written in production.
+
+Release validation: backend-tests.mjs passed 109 HTTP assertions plus balance, isolation, migration, retry and reconciliation checks against local SQLite. The Windows build and all regression suites passed. Production deployment is recorded from the owner's confirmation, not a new automated deployment.

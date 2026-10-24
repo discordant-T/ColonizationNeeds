@@ -13,14 +13,15 @@ const bridge=payload=>{
  const r=spawnSync(python,[join(root,'sqlite_bridge.py'),dbfile],{input:JSON.stringify(payload),encoding:'utf8',windowsHide:true});
  const v=JSON.parse(r.stdout||'{}'); if(r.status||v.error) throw Error(v.error||r.stderr); return v.result;
 };
+const executed=[];
 class Statement {
  constructor(sql){this.sql=sql;this.args=[];}
  bind(...args){this.args=args;return this;}
- async all(){return bridge({queries:[this]})[0];}
+ async all(){executed.push(this.sql);return bridge({queries:[this]})[0];}
  async first(){return (await this.all()).results[0]||null;}
  async run(){return this.all();}
 }
-const db={prepare:sql=>new Statement(sql),withSession(){return this;},async batch(queries){return bridge({queries});}};
+const db={prepare:sql=>new Statement(sql),withSession(){return this;},async batch(queries){executed.push(...queries.map(x=>x.sql));return bridge({queries});}};
 const worker=(await import('data:text/javascript;base64,'+Buffer.from(readFileSync(join(root,'../backend/worker.js'),'utf8')).toString('base64'))).default;
 const env={DB:db,OWNER_TOKEN:'local-test-owner-secret'};
 let tests=0;
@@ -29,7 +30,7 @@ async function request(path,token,payload,status=200){
  const v=await r.json(); assert.equal(r.status,status,JSON.stringify(v)); tests++; return v;
 }
 try {
- bridge({schema:readFileSync(join(root,'../backend/schema.sql'),'utf8')+'\n'+readFileSync(join(root,'../backend/schema-v2.sql'),'utf8')+'\n'+readFileSync(join(root,'../backend/schema-transit.sql'),'utf8')});
+ bridge({schema:readFileSync(join(root,'../backend/schema.sql'),'utf8')+'\n'+readFileSync(join(root,'../backend/schema-v2.sql'),'utf8')+'\n'+readFileSync(join(root,'../backend/schema-transit.sql'),'utf8')+'\n'+readFileSync(join(root,'../backend/schema-read-optimization.sql'),'utf8')});
  const admin=(await request('/admin/players',env.OWNER_TOKEN,{groupId:'squad',name:'A',role:'admin'},201)).accessToken;
  const member=(await request('/admin/players',env.OWNER_TOKEN,{groupId:'squad',name:'B',role:'member'},201)).accessToken;
  const other=(await request('/admin/players',env.OWNER_TOKEN,{groupId:'other',name:'C',role:'admin'},201)).accessToken;
@@ -143,5 +144,29 @@ try {
  const player=await db.prepare("SELECT id FROM players WHERE name='B'").first();
  await db.prepare("INSERT INTO transit_events(group_id,request_id,player_id,kind,commodity,amount,observed_at) VALUES('squad','old-cap',?,'cap','steel',0,'2026-10-15T02:00:00.000Z')").bind(player.id).run();
  await request('/v2/transit',member,{requestId:'old-cap',transit:{id:'old-cap',kind:'cap',commodity:'steel',amount:0,timestamp:'2026-10-15T02:00:00Z'}});
+ // Unchanged polls must never read inventory or replay event history.
+ let full=await supply();assert(full.revision);assert.equal(full.carriers.length,2);
+ executed.length=0;
+ let same=await request('/v2/inventory?since='+full.revision,admin);
+ assert.equal(same.unchanged,true);assert(!('inventory' in same));
+ assert(!executed.some(sql=>/SELECT \* FROM transit_events|FROM carrier_inventory|FROM inventory/.test(sql)));
+ // Tokens cannot suppress another group's or player's initial snapshot.
+ assert(!(await request('/v2/inventory?since='+full.revision,other)).unchanged);
+ assert(!(await request('/v2/inventory?since='+full.revision,member)).unchanged);
+ await request('/v2/transit',member,inbound('revision-backdated',3,'any','2020-01-01T00:00:00Z'));
+ let changed=await request('/v2/inventory?since='+full.revision,admin);
+ assert(!changed.unchanged);assert.notEqual(changed.revision,full.revision);
+ full=changed;
+ await request('/v2/transactions',admin,tx('revision-stock','123','add',1,'Manual',''));
+ changed=await request('/v2/inventory?since='+full.revision,admin);
+ assert(!changed.unchanged);full=changed;
+ await request('/v2/carriers',admin,{...registry,requestId:'revision-registry',expectedVersion:full.registryVersion});
+ changed=await request('/v2/inventory?since='+full.revision,admin);
+ assert(!changed.unchanged);assert(changed.registryVersion>full.registryVersion);
+ // Each high-water query uses a covering index rather than scanning group history.
+ for(const table of ['carrier_ledger','transit_events','ledger']) {
+   const plan=await db.prepare('EXPLAIN QUERY PLAN SELECT MAX(sequence) FROM '+table+' WHERE group_id=?').bind('squad').all();
+   assert(plan.results.some(x=>x.detail.includes('COVERING INDEX') && x.detail.includes('group_sequence')),JSON.stringify(plan));
+ }
  console.log(`Backend tests passed: ${tests} HTTP assertions plus balance, isolation, migration, retry and reconciliation checks.`);
 } finally {rmSync(scratch,{recursive:true,force:true});}

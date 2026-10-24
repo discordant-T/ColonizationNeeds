@@ -1,3 +1,7 @@
+## v1.28.6 backend update
+
+The owner confirmed the shared-read optimization Worker and additive indexes were applied on October 23, 2026. This GitHub publication does not redeploy or migrate production. Existing installations that have not upgraded should follow READ-OPTIMIZATION.md (in the repository root); preserve all existing stock, ledgers, users, bindings and secrets.
+
 # Deployment and upgrade notes — v1.28.2
 
 This release includes the desktop application, shared Worker source, additive schemas and setup documentation. It does not contain credentials, player settings, runtime inventory, journal files, diagnostic logs or private deployment recovery records.

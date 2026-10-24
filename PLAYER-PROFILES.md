@@ -1,5 +1,7 @@
 # Multiple commanders and PCs — 1.28
 
+Version 1.28.5 keeps the window responsive during journal catch-up when changing players. A switching message appears while outgoing events finish saving; account controls are temporarily unavailable until the incoming profile is loaded. Existing account data and credentials do not need resetting. If an older version is stuck, close it with Task Manager and reopen with the updated executable; keep the saved profile folders intact.
+
 Use Add player, enter the exact commander name and configure that player's own Raven key and journal folder. Names are unique ignoring case. New profiles do not inherit another player's keys, shared token or collection intent. They start with local inventory, Manual tracking, Raven reporting off and Collecting for carriers off. Cancelling setup leaves the profile available to finish later.
 
 Choose the active commander with Player. Wait for current operations to finish; outgoing journal activity is processed before switching. Each profile keeps its own Raven settings, shared URL/token, local stock, Inbound/Outbound events, collection switch/destination, journal cursor, review/outbox/reporting queues and display preferences. The same Windows journal directory can contain multiple commanders; processing is filtered by commander. Only verified original project requirements for the exact Raven build ID may be reused; remaining observations and cargo are not copied between accounts.
