@@ -1,6 +1,6 @@
-# Member setup — 1.28
+# Member setup — 1.28.6
 
-1. Close the old app and run the supplied 1.28 executable. Your existing settings and keys are retained; do not move Legacy stock again after upgrading.
+1. Close the old app and run the supplied 1.28.6 executable. Your existing settings and keys are retained; do not move Legacy stock again after upgrading.
 2. In Settings enter your exact Raven commander, your own Raven key when needed, and your game's journal folder. Refresh and select your individual project or All active projects.
 3. Open Settings → Shared inventory. Use the leader's HTTPS service URL and your own player token; enable sharing, test and Save. The leader's admin configures carriers under Carriers / review; you receive that registry automatically. Each player needs their own identity/token.
 4. Select Automatic. Before buying carrier supplies at a station, enable Collecting for carriers and choose a carrier or Either carrier. Leave it off for personal purchases. The choice persists per player. Changing it affects future purchases, not existing loads.
