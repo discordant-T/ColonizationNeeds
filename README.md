@@ -1,12 +1,10 @@
-# ColonizationNeeds 1.28.4
+# ColonizationNeeds 1.28.6
 
 Windows Forms application for Elite Dangerous colonization supplies, with local or shared tracking across a squadron carrier, a personal carrier and multiple commanders on one PC.
 
-Version **1.28.4** fixes a column-fitting crash while switching project views or resizing the commodity list. It preserves the six-column carrier accounting introduced before this fix; no stock migration or backend change is needed. See [release notes](RELEASE-NOTES.md).
+Version **1.28.6** reduces shared inventory reads when nothing has changed and includes carrier configuration in full snapshots. It retains responsive player switching, the column-resizing fix, compact In/Out headings and existing encrypted credentials, inventory and reporting queues. See [shared read optimization](READ-OPTIMIZATION.md).
 
-Version **1.28.3** added a carrier icon to the executable, window and taskbar. Both build methods embed `assets/ColonizationNeeds.ico`; no separate icon file is needed when running the executable. Artwork source and preparation are documented in [assets/README.md](assets/README.md).
-
-Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.4**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
+Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.6**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
 
 The table is **Commodity | To deliver | Stock | Inbound | Outbound | To collect**. To collect is `max(0, To deliver - Stock - Inbound - Outbound)` per commodity. Hover the headings for definitions.
 
@@ -38,3 +36,5 @@ Routine waiting for a game journal is quiet: Compact view shows Idle, and detail
 Windows with .NET Framework 4.8 is required. `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1` uses the built-in Windows compiler and runs application/profile/DPAPI, journal, local/shared cargo, UI and Raven-reporting checks. No C# packages are required. Backend integration tests run the actual Worker routes and SQLite triggers locally: `node tests/backend-tests.mjs <python-executable>`. They do not contact production.
 
 The dated `README-1.26-reference.md` is historical documentation, not current setup instructions. No runtime credentials or inventory belong in the source package.
+
+The owner confirmed the v1.28.6 backend update was completed on October 23, 2026. This publication does not redeploy the backend. See [READ-OPTIMIZATION.md](READ-OPTIMIZATION.md).

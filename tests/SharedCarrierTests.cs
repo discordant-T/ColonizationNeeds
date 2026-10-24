@@ -11,7 +11,7 @@ class SharedCarrierTests
 {
     class Transport:HttpMessageHandler
     {
-        public bool loseAck=true, rejectManual; public int applied; public readonly HashSet<string> ids=new HashSet<string>(); public readonly List<string> endpoints=new List<string>();
+        public bool loseAck=true, rejectManual, modern; public int applied; public readonly HashSet<string> ids=new HashSet<string>(); public readonly List<string> endpoints=new List<string>();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancel)
         {
             endpoints.Add(request.RequestUri.AbsolutePath);
@@ -24,6 +24,12 @@ class SharedCarrierTests
                 if(ids.Add(id)) applied++;
                 if(loseAck) throw new TaskCanceledException("Lost acknowledgment");
                 return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{}")};
+            }
+            if(modern && request.RequestUri.AbsolutePath=="/v2/inventory") {
+                string response=request.RequestUri.Query.Contains("since=test-revision")
+                    ? "{\"schema\":2,\"unchanged\":true,\"revision\":\"test-revision\"}"
+                    : "{\"schema\":2,\"revision\":\"test-revision\",\"groupId\":\"squad\",\"role\":\"admin\",\"registryVersion\":8,\"carriers\":[{\"id\":\"123\",\"name\":\"Updated\",\"role\":\"Squadron\",\"verified\":true}],\"inventory\":[{\"carrier_id\":\"123\",\"commodity\":\"steel\",\"quantity\":42,\"version\":9}],\"inbound\":[{\"carrier_id\":\"123\",\"commodity\":\"steel\",\"quantity\":7}],\"transit\":[{\"carrier_id\":\"123\",\"commodity\":\"steel\",\"quantity\":5}]}";
+                return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent(response)};
             }
             if(request.RequestUri.AbsolutePath=="/v2/carriers") return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"groupId\":\"squad\",\"role\":\"admin\",\"version\":1,\"carriers\":[{\"id\":\"123\",\"name\":\"Squadron\",\"role\":\"Squadron\",\"verified\":true},{\"id\":\"456\",\"name\":\"Personal\",\"role\":\"Personal\",\"verified\":true}]}")};
             return new HttpResponseMessage(HttpStatusCode.OK) {Content=new StringContent("{\"schema\":2,\"groupId\":\"squad\",\"role\":\"admin\",\"inventory\":[{\"carrier_id\":\"123\",\"commodity\":\"steel\",\"quantity\":10,\"version\":1},{\"carrier_id\":\"456\",\"commodity\":\"steel\",\"quantity\":20,\"version\":2},{\"carrier_id\":\"legacy\",\"commodity\":\"water\",\"quantity\":3,\"version\":4}]}" )};
@@ -57,6 +63,11 @@ class SharedCarrierTests
                 Check(shared.RegistryReady && shared.Carriers.Count==2 && shared.Carriers[0].verified,"Shared registry was not adopted");
                 shared.Enqueue(new[] {new SharedInventoryClient.Change {commodity="water",operation="add",amount=3,source="Collect"}}); await shared.Sync();
                 Check(transport.endpoints.All(x=>x.StartsWith("/v2/")),"Old queue was not migrated to v2 protocol");
+                transport.modern=true; transport.endpoints.Clear(); await shared.Sync();
+                Check(shared.CarrierStock("123")["steel"]==42 && shared.Carriers[0].name=="Updated" && shared.CarrierRegistryVersion==8,"Combined snapshot not adopted");
+                await shared.Sync();
+                Check(transport.endpoints.Count==2 && transport.endpoints.All(x=>x=="/v2/inventory"),"Optimized sync still fetches registry");
+                Check(shared.CarrierStock("123")["steel"]==42 && shared.InboundBalances["123|steel"]==7 && shared.TransitBalances["123|steel"]==5,"Unchanged response erased balances");
                 transport.rejectManual=true;shared.Enqueue(new[] {new SharedInventoryClient.Change {carrierId="123",commodity="steel",operation="set",amount=10,source="Manual"}});
                 try {await shared.Sync();} catch(IOException){}
                 Check(shared.Blocked && shared.Pending==1 && shared.CancelBlockedManual() && shared.Pending==0,"Rejected manual correction could not be resolved");

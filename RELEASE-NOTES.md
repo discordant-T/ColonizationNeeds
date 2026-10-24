@@ -1,4 +1,16 @@
+## 1.28.6 — Shared read optimization
+
+Built on existing 1.28.5, retaining responsive player switching. Unchanged syncs skip history replay; full snapshots include carriers. Includes additive indexes and the matching Worker update for savings. The owner confirmed these backend changes were completed on October 23, 2026; publishing this release does not repeat deployment. See READ-OPTIMIZATION.md.
+
 # Release history and upgrade coverage
+
+## 1.28.5 — Responsive player switching
+
+- Drain the outgoing commander's journal in bounded, durable batches so the window can repaint before changing accounts.
+- Initialize the incoming journal reader off the window thread. Inventory/reporting callbacks stay on the window thread; account controls remain disabled throughout the switch.
+- Bound routine timer polling to 128 complete events per tick. Explicit accounting-mode and collection-intent changes retain their complete pre-change flush.
+- Preserve profile data, encrypted credentials, stock, outboxes, event identities and the carrier icon. No backend deployment or migration is required.
+- Added a regression check for a 300-event backlog, UI message processing during catch-up and the final durable journal offset.
 
 ## 1.28.4 — Project-switch column resizing fix
 

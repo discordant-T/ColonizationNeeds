@@ -119,13 +119,25 @@ export default {
         return json({ok:true});
       }
       if (url.pathname === '/v2/inventory' && request.method === 'GET') {
+        // Read indexed high-water marks before loading the snapshot. Concurrent writes
+        // remain visible on the next poll even if this response includes newer data.
+        const marks=await db.prepare(`SELECT
+          (SELECT COALESCE(MAX(sequence),0) FROM carrier_ledger WHERE group_id=?) AS stock,
+          (SELECT COALESCE(MAX(sequence),0) FROM transit_events WHERE group_id=?) AS transit,
+          (SELECT COALESCE(MAX(sequence),0) FROM ledger WHERE group_id=?) AS legacy,
+          (SELECT COALESCE(MAX(version),0) FROM carrier_registry_versions WHERE group_id=?) AS registry`)
+          .bind(player.group_id,player.group_id,player.group_id,player.group_id).first();
+        const revision=await hash(JSON.stringify([player.group_id,player.id,player.name,player.role,marks]));
+        if(url.searchParams.get('since')===revision)
+          return json({schema:2,unchanged:true,revision});
         const result=await db.batch([
           db.prepare("SELECT carrier_id,commodity,quantity,version,reconciled_at FROM carrier_inventory WHERE group_id=? UNION ALL SELECT 'legacy' AS carrier_id,commodity,quantity,version,'' AS reconciled_at FROM inventory WHERE group_id=? ORDER BY carrier_id,commodity").bind(player.group_id,player.group_id),
           db.prepare('SELECT COALESCE(MAX(sequence),0) AS cursor FROM carrier_ledger WHERE group_id=?').bind(player.group_id),
-          db.prepare('SELECT * FROM transit_events WHERE group_id=? ORDER BY julianday(observed_at),sequence').bind(player.group_id)
+          db.prepare('SELECT * FROM transit_events WHERE group_id=? ORDER BY julianday(observed_at),sequence').bind(player.group_id),
+          db.prepare('SELECT carrier_id AS id,name,role,callsign,last_seen AS lastSeen,verified FROM carrier_registry WHERE group_id=? ORDER BY role DESC').bind(player.group_id)
         ]);
         const events=result[2],supply=transitBalances(events.results);
-        return json({schema:2,groupId:player.group_id,player:player.name,role:player.role,inventory:result[0].results,transit:supply.transit,inbound:supply.inbound,cursor:result[1].results[0].cursor});
+        return json({schema:2,revision,carriers:result[3].results.map(x=>({...x,verified:!!x.verified})),registryVersion:marks.registry,groupId:player.group_id,player:player.name,role:player.role,inventory:result[0].results,transit:supply.transit,inbound:supply.inbound,cursor:result[1].results[0].cursor});
       }
       if(url.pathname === '/v2/ledger' && request.method === 'GET') {
         const after=Number(url.searchParams.get('after')||0);

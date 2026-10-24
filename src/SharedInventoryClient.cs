@@ -168,9 +168,9 @@ public sealed class SharedInventoryClient : IDisposable
         await LoadCarriers();
         if(failure!=null && (Carriers.Count!=carriers.Count || carriers.Any(c=>!Carriers.Any(x=>x.id==c.id && x.name==c.name && x.role==c.role && (x.callsign??"")==(c.callsign??"") && x.verified==c.verified)))) throw new IOException("Shared carrier configuration was not confirmed: "+failure.Message,failure);
     }
+    string snapshotRevision = "";
     public async Task Sync()
     {
-        await LoadCarriers();
         while(queue.Count>0 && !Blocked)
         {
             var sent=queue[0]; if(String.IsNullOrEmpty(sent.carrierId)) sent.carrierId="legacy";
@@ -179,7 +179,8 @@ public sealed class SharedInventoryClient : IDisposable
             // Remove only after acknowledgment; retries retain their stable request ID.
             var next=queue.Skip(1).ToList(); Write(queuePath,json.Serialize(next)); queue=next;
         }
-        var snapshot=await Request("v2/inventory");
+        var snapshot=await Request("v2/inventory"+(snapshotRevision.Length==0?"":"?since="+Uri.EscapeDataString(snapshotRevision)));
+        if(snapshot.ContainsKey("unchanged") && Convert.ToBoolean(snapshot["unchanged"]) && Ready) return;
         if(!snapshot.ContainsKey("schema") || Convert.ToInt32(snapshot["schema"])!=2) throw new IOException("Carrier backend v2 must be deployed before shared carrier tracking can be used.");
         var stock=new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase); var versions=new Dictionary<string,long>(StringComparer.OrdinalIgnoreCase);
         var balances=new Dictionary<string,long>(); var carrierVersions=new Dictionary<string,long>();
@@ -196,9 +197,15 @@ public sealed class SharedInventoryClient : IDisposable
         var inbound=new Dictionary<string,long>(); object rawInbound;
         InboundReady=snapshot.TryGetValue("inbound",out rawInbound);
         if(InboundReady) foreach(var item in (object[])rawInbound) {var row=(Dictionary<string,object>)item;inbound[CarrierInventory.Key(Convert.ToString(row["carrier_id"]),Convert.ToString(row["commodity"]))]=Convert.ToInt64(row["quantity"]);}
+        if(snapshot.ContainsKey("carriers")) {
+            Carriers=new JavaScriptSerializer().Deserialize<List<CarrierInventory.Carrier>>(json.Serialize(snapshot["carriers"]));
+            CarrierRegistryVersion=Convert.ToInt64(snapshot["registryVersion"]); RegistryReady=true;
+            if(Blocked && queue.Count>0 && (queue[0].source=="Market"||queue[0].source=="Transfer") && Carriers.Any(x=>x.id==queue[0].carrierId)) Blocked=false;
+        } else await LoadCarriers(); // Compatibility with the existing deployed Worker.
         InboundBalances=inbound;
         TransitBalances=transit;
         CarrierBalances=balances; CarrierVersions=carrierVersions; Stock=stock; Versions=versions; Group=Convert.ToString(snapshot["groupId"]); Role=Convert.ToString(snapshot["role"]); Ready=true;
+        snapshotRevision=snapshot.ContainsKey("revision")?Convert.ToString(snapshot["revision"]):"";
     }
     public void Dispose() { http.Dispose(); }
 }

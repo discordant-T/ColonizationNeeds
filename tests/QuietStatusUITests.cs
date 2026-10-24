@@ -36,6 +36,17 @@ class QuietStatusUITests
             changes=0;for(int i=0;i<5;i++){Call(form,"RefreshCarrierStock");Call(form,"PollCargo");}Check(changes==0,"Real mismatch still flashed");
             Call(form,"SetTrackingProblem","Journal read failed");Call(form,"RefreshCarrierStock");Check(alert.Visible && cargo.Text.Contains("Journal read failed"),"Stock refresh cleared a tracking failure");
             File.AppendAllText(journal,"{\"event\":\"LoadGame\",\"Commander\":\"Test\"}\n");Call(form,"PollCargo");Check(!alert.Visible && !cargo.Text.Contains("paused"),"Successful matching poll did not clear failure");
+            // A switched-away profile must drain its backlog without starving window messages.
+            for(int i=0;i<300;i++)File.AppendAllText(journal,"{\"event\":\"Music\",\"MusicTrack\":\"Test\"}\n");
+            bool repainted=false;form.BeginInvoke(new Action(delegate {repainted=true;}));
+            var drain=(System.Threading.Tasks.Task)form.GetType().GetMethod("FlushCargoForPlayerSwitch",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,null);
+            Check(!drain.IsCompleted,"Player switch drained journal synchronously on the window thread");
+            var deadline=DateTime.UtcNow.AddSeconds(20);
+            while(!drain.IsCompleted && DateTime.UtcNow<deadline){Application.DoEvents();System.Threading.Thread.Sleep(1);}
+            Check(drain.IsCompleted && !drain.IsFaulted && repainted,"Player switch did not drain while pumping UI messages");
+            Check(!restarted.HasPending,"Player switch left outgoing journal events behind");
+            var offsets=new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string,JournalCargoTracker.Cursor>>(File.ReadAllText(cursor));
+            Check(offsets[journal].Offset==new FileInfo(journal).Length,"Switch flush did not durably acknowledge the full outgoing backlog");
             form.Close();
         }}finally {foreach(var file in Directory.GetFiles(journals))File.Delete(file);Directory.Delete(journals);foreach(var file in Directory.GetFiles(root))File.Delete(file);Directory.Delete(root);}
         Console.WriteLine("Quiet status checks passed: restart identity, idle silence, stable poll/refresh, transition logging and visible genuine failures.");

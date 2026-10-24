@@ -1,3 +1,7 @@
+## v1.28.6 backend update
+
+The owner confirmed the shared-read optimization Worker and additive indexes were applied on October 23, 2026. This GitHub publication does not redeploy or migrate production. Existing installations that have not upgraded should follow READ-OPTIMIZATION.md (in the repository root); preserve all existing stock, ledgers, users, bindings and secrets.
+
 # Shared backend — 1.28
 
 Cloudflare Worker plus D1, with the database binding named DB and OWNER_TOKEN stored as a Cloudflare secret. Never embed owner/player/Cloudflare credentials in source or ship them in the Windows executable.
