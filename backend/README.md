@@ -2,17 +2,19 @@
 
 The owner confirmed the shared-read optimization Worker and additive indexes were applied on October 23, 2026. This GitHub publication does not redeploy or migrate production. Existing installations that have not upgraded should follow READ-OPTIMIZATION.md (in the repository root); preserve all existing stock, ledgers, users, bindings and secrets.
 
-# Shared backend — 1.28
+# Shared backend — 1.28.6
 
 Cloudflare Worker plus D1, with the database binding named DB and OWNER_TOKEN stored as a Cloudflare secret. Never embed owner/player/Cloudflare credentials in source or ship them in the Windows executable.
 
+For an independent new service, create your own Cloudflare Worker and D1 database, bind the database as DB, and configure your own OWNER_TOKEN secret. When creating players, run Create-Player.cmd -ServerUrl https://YOUR-WORKER.workers.dev -GroupId YOUR-GROUP (or Create-Player.ps1 with those arguments). Supply your own URL: the script defaults to the original project service. Members only need the executable, your service URL and their own player token; solo local use needs no backend.
+
 ## Install or upgrade
 
-1. For a fresh database apply schema.sql, schema-v2.sql and schema-transit.sql in that order. They use additive IF NOT EXISTS definitions. Existing v1 services need the missing carrier/transit migrations. A 1.27.2 database already has everything needed for 1.28; deploy only worker.js.
+1. For a fresh database apply schema.sql, schema-v2.sql, schema-transit.sql and schema-read-optimization.sql in that order. They use additive IF NOT EXISTS definitions. Existing v1 services need the missing carrier/transit migrations. Existing 1.27.2–1.28.5 databases also need schema-read-optimization.sql before deploying the current worker.js.
 2. Keep the existing DB binding, OWNER_TOKEN, players/token hashes, original inventory/ledger, carrier registry and cargo events. Do not create a new database or reset user stock for an upgrade. Record the active version/recovery information before changing production.
 3. Deploy worker.js to the existing service. Verify GET /health: ok true, schema 2, transit true, inbound true. Check authenticated inventory/carrier reads using existing player identities. Test mutations locally, not against production stock.
 4. Create player tokens with Create-Player.cmd or Create-Player.ps1. The script prompts for the owner secret with hidden input. Use the same GroupId for collaborating commanders, unique player identities/tokens, and member or admin role as appropriate. A member never needs the owner secret or Cloudflare sign-in.
-5. Members configure HTTPS Worker root URL and their player access token in Settings → Shared inventory. The app uses Bearer authentication and DPAPI-encrypted local settings. Admins save the shared Squadron/Personal carrier registry; members adopt it automatically. Upgrade hauling clients to 1.28.
+5. Members configure HTTPS Worker root URL and their player access token in Settings → Shared inventory. The app uses Bearer authentication and DPAPI-encrypted local settings. Admins save the shared Squadron/Personal carrier registry; members adopt it automatically. Upgrade hauling clients to 1.28.6.
 
 ## API and storage
 

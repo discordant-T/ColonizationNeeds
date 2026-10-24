@@ -1,4 +1,4 @@
-# Solo setup — 1.28
+# Solo setup — 1.28.6
 
 Cloudflare is optional for a single PC. Run the supplied executable, configure your exact Raven commander/key and journal folder in Settings, and leave Use shared inventory disabled. Local carrier stock and ship cargo are saved per profile. Multiple PCs or collaborating commanders should use the shared backend; local files do not synchronize themselves.
 

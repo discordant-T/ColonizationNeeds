@@ -1,14 +1,14 @@
-# Leader installation and administration — 1.28
+# Leader installation and administration — 1.28.6
 
-Download the **v1.28.2** executable/source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest). Run bin/ColonizationNeeds.exe on Windows with .NET Framework 4.8. Existing installations keep their Local AppData settings, inventory, encrypted API keys, profiles, carrier selections and queues. Close the old app before upgrading. Do not repeat Legacy migration.
+Download the **v1.28.6** executable/source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest). Run bin/ColonizationNeeds.exe on Windows with .NET Framework 4.8. Existing installations keep their Local AppData settings, inventory, encrypted API keys, profiles, carrier selections and queues. Close the old app before upgrading. Do not repeat Legacy migration.
 
 1. Configure your exact Raven commander name, that commander's Raven API key if required, and the Elite Dangerous journal directory in Settings. Refresh and check All active projects or an individual project. A shared inventory token does not grant Raven project access.
-2. For an existing backend retain the DB binding, OWNER_TOKEN secret, players, stock, ledgers and registry. The supplied Worker supports Inbound and Outbound with schema 2 plus schema-transit.sql. The 1.28 backend requires no extra schema migration over 1.27.2. Fresh installation details are in backend/README.md.
+2. For an existing backend retain the DB binding, OWNER_TOKEN secret, players, stock, ledgers and registry. The supplied Worker supports Inbound and Outbound with schema 2 plus schema-transit.sql. The v1.28.6 backend also requires schema-read-optimization.sql; see READ-OPTIMIZATION.md. Fresh installation details are in backend/README.md.
 3. Create a separate player access token for each commander in the same GroupId. Run backend/Create-Player.cmd or Create-Player.ps1; OWNER_TOKEN is entered through hidden input. Choose an admin for configuration/reconciliation and members for normal hauling. Do not distribute the owner secret or a Cloudflare account token to members.
 4. Under Settings → Shared inventory, enable sharing and enter the HTTPS Worker root URL and your player token. Test connection and Save. Keep the service URL and group consistent across members. Tokens are encrypted with Windows DPAPI on that PC.
 5. Open Carriers / review, discover your observed carriers, assign Squadron/Personal and Save shared carriers as admin. Members synchronize the same IDs. Manual MarketID fallback requires confirmation if not observed.
 6. On first migration only, assign existing Legacy stock with Edit inventory → Move from legacy. Split it between carriers without changing combined totals. Reconcile actual quantities if prior activity was unobserved.
-7. Select Automatic. Enable Collecting for carriers and choose a destination only while buying intended supplies at stations. All hauling members should run 1.28. Check a small purchase, partial carrier sale/direct transfer, withdrawal, delivery and return before broader use.
+7. Select Automatic. Enable Collecting for carriers and choose a destination only while buying intended supplies at stations. All hauling members should run 1.28.6. Check a small purchase, partial carrier sale/direct transfer, withdrawal, delivery and return before broader use.
 
 Use Add player for other commanders on the same PC. Each has separate Raven/shared credentials, stock/cargo state, collection intent, journal cursor and reporting queues. See PLAYER-PROFILES.md.
 
