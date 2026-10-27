@@ -1,5 +1,7 @@
 # Compact view — 1.28.2
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 Choose **View → Compact view**. The default compact size is **510 × 440 pixels**, with a **480-pixel minimum width**. Resize it to suit your screen. **View → Full view** restores the wider layout. Each player remembers their own view, sizes, expanded panels, visible cargo columns and totals preference; new profiles start with Full view.
 
 ## Everyday controls
@@ -31,3 +33,4 @@ A confirmed active commander different from the selected Player is still a visib
 Use **View → Tracking log…** to open a read-only snapshot of the current player's local diagnostics. The file is tracking-status.log beside that player's settings, normally under %LOCALAPPDATA%\ColonizationNeeds\profiles\<profile-id>. It records timestamped tracking state transitions in UTC, not every two-second poll or full journal contents, and is cleared/reused after approximately 128 KiB. It contains no configured API keys or access tokens and is not uploaded to the backend. Close and reopen the viewer to refresh its contents. Inbound/Outbound stock/cargo receipts and their shared synchronization are separate from this diagnostic log.
 
 Version 1.28.4 guards FitViewColumns during native row replacement and recursive resizing. The same six cells and hidden-column preferences are retained. Switching between an individual project and All active projects requires no stock reset.
+

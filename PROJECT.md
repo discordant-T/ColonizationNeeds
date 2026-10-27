@@ -21,3 +21,5 @@ Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/Colonization
 | tests/ | Real SQLite Worker routes, local/shared replay/lost acknowledgment, UI arithmetic/configuration and Raven checks. |
 
 Keep source and runnable executable together, but never package runtime inventory, player tokens or API keys. Production deployments must preserve the existing database/registry/secrets and record validation/recovery information in DEPLOYMENT.md. Do not deploy merely to run tests.
+
+Local 1.29 adds src/ProjectSelection.cs (per-profile fixed/all-project preferences and picker), PROJECT-SELECTION.md and tests/ActiveProjectUITests.cs. The tests use a real WinForms message loop and mocked GET-only Raven responses, and confirm unchanged stock/transit records. Base package 1.28.6 SHA256 matches desktop. Build and full Windows regression suite pass; no backend deployment.

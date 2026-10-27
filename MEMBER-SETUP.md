@@ -1,5 +1,7 @@
 # Member setup — 1.28.6
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 1. Close the old app and run the supplied 1.28.6 executable. Your existing settings and keys are retained; do not move Legacy stock again after upgrading.
 2. In Settings enter your exact Raven commander, your own Raven key when needed, and your game's journal folder. Refresh and select your individual project or All active projects.
 3. Open Settings → Shared inventory. Use the leader's HTTPS service URL and your own player token; enable sharing, test and Save. The leader's admin configures carriers under Carriers / review; you receive that registry automatically. Each player needs their own identity/token.
@@ -13,3 +15,4 @@ Run the correct Player profile for the commander currently playing. Configure Ra
 **What the collection switch controls:** it marks new ordinary-station purchases as Inbound while Automatic tracking is active. Leave it off for personal purchases/trading; you do not need to turn it off to deliver. Deposits to a configured carrier always increase Stock, even with the switch off, and carrier withdrawals/deliveries still track normally. Turning it on later does not retroactively mark cargo already aboard. Turning it off does not erase existing loads. Any personal/trading goods deposited on a configured carrier also count as Stock.
 
 For a smaller overlay choose **View → Compact view**. Use Controls to reveal player/tracking/destination settings and click the bottom status strip for details. Columns/totals can be hidden through View; accounting is unchanged. These preferences are saved independently per player. See [Compact view](COMPACT-VIEW.md).
+

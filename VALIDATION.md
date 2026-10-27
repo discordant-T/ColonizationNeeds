@@ -37,3 +37,6 @@ Backend integration tests passed **99 HTTP assertions** plus direct balance/SQL 
 No real in-game station purchase, carrier sale/transfer or construction delivery was performed by automated tests. A small live end-to-end cycle remains a user/game validation step. Read-only production preservation/capability checks and the actual deployed version are recorded in DEPLOYMENT.md. No stock or cargo test mutations are written in production.
 
 Release validation: backend-tests.mjs passed 109 HTTP assertions plus balance, isolation, migration, retry and reconciliation checks against local SQLite. The Windows build and all regression suites passed. Production deployment is recorded from the owner's confirmation, not a new automated deployment.
+
+
+Version 1.29 project selection is desktop-only and uses the same backend as current main. It preserves published 1.28.6 shared-sync fixes. The complete Windows suite includes ActiveProjectUITests: fixed/all/empty rollups, new/renamed IDs, individual inspection, cancellation, per-commander persistence and unchanged stock/transit. No additional backend migration/deployment is needed for project selection.

@@ -30,6 +30,7 @@ public partial class ColonizationNeeds
 
     void InitializeCompactUI(Panel header,Panel entry,Panel playerRow,FlowLayoutPanel options,FlowLayoutPanel mode,FlowLayoutPanel inbound)
     {
+        header.Controls.Add(activeProjectsButton); activeProjectsButton.BackColor=AccentColor; activeProjectsButton.ForeColor=TextColor; activeProjectsButton.FlatStyle=FlatStyle.Flat; activeProjectsButton.FlatAppearance.BorderSize=0; activeProjectsButton.Click+=async delegate {await ChooseActiveProjects();};
         viewHeader=header;viewEntry=entry;viewPlayer=playerRow;viewOptions=options;viewMode=mode;viewInbound=inbound;
         foreach(Control row in new Control[]{entry,playerRow,options,mode,inbound,selection})row.Dock=DockStyle.None;
         foreach(var button in new[]{viewButton,controlsToggle,statusToggle}) {
@@ -136,7 +137,7 @@ public partial class ColonizationNeeds
         editInventory.Text=compact?"Stock…":"Edit inventory";editInventory.SetBounds(0,0,compact?70:110,25);
         controlsToggle.SetBounds(74,0,85,25);viewButton.SetBounds(width-55,0,55,25);
         configure.SetBounds(width-115,0,60,25);refresh.SetBounds(width-175,0,60,25);
-        selection.SetBounds(8,top,width,25);top+=27;
+        selection.SetBounds(8,top,width-88,25);activeProjectsButton.SetBounds(8+width-82,top,82,25);top+=27;
         if(compact){quickRow.SetBounds(8,top,width,30);top+=30;}
         if(!compact||viewPreferences.controlsExpanded)foreach(var row in new[]{viewPlayer,viewMode,viewInbound,viewOptions}){int height=row==viewPlayer?30:row==viewOptions?25:32;row.SetBounds(8,top,width,height);top+=height;}
         viewHeader.Height=top+3;

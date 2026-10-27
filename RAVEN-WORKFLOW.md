@@ -1,5 +1,7 @@
 # Raven construction workflow — 1.28
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 Configure the exact commander and that commander's Raven API key in Settings. Select All active projects or an individual project. Shared carrier access does not replace Raven authentication or project membership.
 
 ## Start planned construction

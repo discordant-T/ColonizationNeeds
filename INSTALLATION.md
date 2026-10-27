@@ -1,5 +1,7 @@
 # Leader installation and administration — 1.28.6
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 Download the **v1.28.6** executable/source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest). Run bin/ColonizationNeeds.exe on Windows with .NET Framework 4.8. Existing installations keep their Local AppData settings, inventory, encrypted API keys, profiles, carrier selections and queues. Close the old app before upgrading. Do not repeat Legacy migration.
 
 1. Configure your exact Raven commander name, that commander's Raven API key if required, and the Elite Dangerous journal directory in Settings. Refresh and check All active projects or an individual project. A shared inventory token does not grant Raven project access.
@@ -17,3 +19,4 @@ Raven reporting is optional and independent of Automatic/Manual cargo mode. Avoi
 **What the collection switch controls:** it marks new ordinary-station purchases as Inbound while Automatic tracking is active. Leave it off for personal purchases/trading; you do not need to turn it off to deliver. Deposits to a configured carrier always increase Stock, even with the switch off, and carrier withdrawals/deliveries still track normally. Turning it on later does not retroactively mark cargo already aboard. Turning it off does not erase existing loads. Any personal/trading goods deposited on a configured carrier also count as Stock.
 
 For a smaller overlay choose **View → Compact view**. Use Controls to reveal player/tracking/destination settings and click the bottom status strip for details. Columns/totals can be hidden through View; accounting is unchanged. These preferences are saved independently per player. See [Compact view](COMPACT-VIEW.md).
+
