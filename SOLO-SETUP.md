@@ -1,5 +1,7 @@
 # Solo setup — 1.28.6
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 Cloudflare is optional for a single PC. Run the supplied executable, configure your exact Raven commander/key and journal folder in Settings, and leave Use shared inventory disabled. Local carrier stock and ship cargo are saved per profile. Multiple PCs or collaborating commanders should use the shared backend; local files do not synchronize themselves.
 
 Discover and configure your personal and/or squadron carrier in Carriers / review. Use Move from legacy once to split old inventory between carriers without duplicating it. Use Edit inventory for actual stock corrections. Keep old stock/settings files when upgrading; existing encrypted keys and planned-construction/reporting queues are retained.
@@ -11,3 +13,4 @@ Manual mode holds carrier movements for explicit review and suspends new Inbound
 **What the collection switch controls:** it marks new ordinary-station purchases as Inbound while Automatic tracking is active. Leave it off for personal purchases/trading; you do not need to turn it off to deliver. Deposits to a configured carrier always increase Stock, even with the switch off, and carrier withdrawals/deliveries still track normally. Turning it on later does not retroactively mark cargo already aboard. Turning it off does not erase existing loads. Any personal/trading goods deposited on a configured carrier also count as Stock.
 
 For a smaller overlay choose **View → Compact view**. Use Controls to reveal player/tracking/destination settings and click the bottom status strip for details. Columns/totals can be hidden through View; accounting is unchanged. These preferences are saved independently per player. See [Compact view](COMPACT-VIEW.md).
+

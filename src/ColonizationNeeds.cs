@@ -13,9 +13,9 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.28.6.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.28.6.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.28.6 Shared read optimization")]
+[assembly: System.Reflection.AssemblyVersion("1.29.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.29.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.29 Active project selection")]
 
 public partial class ColonizationNeeds : Form
 {
@@ -1180,6 +1180,7 @@ wine|Legal Drugs|Wine";
         }
         return result;
     }
+    readonly string profileRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds");
     readonly HashSet<string> historicalRequirementsChecked = new HashSet<string>();
     // Original build requirements describe a project, not a player's inventory or deliveries.
     public static Dictionary<string, long> ReadOtherProfileRequirements(string root, string buildId)
@@ -1216,7 +1217,7 @@ wine|Legal Drugs|Wine";
             string key = commander.Trim().ToLowerInvariant() + "|" + project.Key;
             Dictionary<string, long> existing;
             if (!projectRequirements.TryGetValue(key, out existing)) existing = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ColonizationNeeds");
+            string root = profileRoot;
             foreach (var pair in ReadOtherProfileRequirements(root, project.Key)) if (!existing.ContainsKey(pair.Key)) existing[pair.Key] = pair.Value;
             projectRequirements[key] = existing;
             string market = project.Value.ContainsKey("marketId") ? Convert.ToString(project.Value["marketId"]) : "";
@@ -1313,10 +1314,12 @@ wine|Legal Drugs|Wine";
         try
         {
             var active = ParseActive(await GetJson("cmdr/" + Uri.EscapeDataString(commander) + "/active"));
+            var projectOptions = ProjectSelectionOptions.Load(Path.GetDirectoryName(settings));
+            int chosenCount = active.Count(x => projectOptions.Includes(Convert.ToString(x["buildId"])));
             updatingSelection = true;
             try
             {
-                selection.Items.Clear(); selection.Items.Add(new ProjectChoice { Id = "", Name = "All active projects (combined)" });
+                selection.Items.Clear(); selection.Items.Add(new ProjectChoice { Id = "", Name = CombinedProjectName(projectOptions, chosenCount, active.Count) });
                 foreach (var p in active)
                     selection.Items.Add(new ProjectChoice { Id = Convert.ToString(p["buildId"]), Name = p.ContainsKey("buildName") ? Convert.ToString(p["buildName"]) : Convert.ToString(p["buildId"]) });
                 selection.SelectedIndex = 0;
@@ -1333,7 +1336,7 @@ wine|Legal Drugs|Wine";
             foreach (var p in active)
             {
                 var build = Convert.ToString(p["buildId"]);
-                if (id.Length > 0 && build != id) continue;
+                if (id.Length > 0 ? build != id : !projectOptions.Includes(build)) continue;
                 var data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
                 if (!data.ContainsKey("marketId") && p.ContainsKey("marketId")) data["marketId"] = p["marketId"];
                 fetchedProjects[build] = data;
@@ -1346,6 +1349,7 @@ wine|Legal Drugs|Wine";
                     else cargo[pair.Key] = checked((cargo.ContainsKey(pair.Key) ? Convert.ToInt64(cargo[pair.Key]) : 0L) + value);
                 }
             }
+                if (projectCount == 0) { deliveryProjects.Clear(); displayedDelivery = null; displayedRequired = null; ClearCommodities(); shownId = id; status.Text = "No projects selected for the combined view. Use Projects to choose active projects."; return; }
                 deliveryProjects.Clear(); foreach (var pair in fetchedProjects) deliveryProjects[pair.Key] = pair.Value;
                 string deliveryPath = InventoryPath() + ".deliveries.json";
                 if (File.Exists(deliveryPath))
@@ -1359,7 +1363,7 @@ wine|Legal Drugs|Wine";
                 RecalculateDelivery();
                 displayedCargo = cargo; displayedUnknown = unknownKeys; RenderCommodities(); shownId = id;
                 Text = "ColonizationNeeds — " + commander;
-                status.Text = projectCount + " project(s) · Updated " + DateTime.Now.ToString("HH:mm:ss");
+                status.Text = projectCount + (id.Length == 0 ? " of " + active.Count + " active projects included" : " project(s)") + " · Updated " + DateTime.Now.ToString("HH:mm:ss");
         }
         catch (TaskCanceledException) { status.Text = "Request timed out. " + (shownId == id ? "Displayed data is stale." : "Try Refresh again."); }
         catch (Exception ex) { status.Text = "Project refresh error: " + ex.Message + (shownId == id ? " Displayed data is stale." : ""); }
@@ -1428,6 +1432,7 @@ wine|Legal Drugs|Wine";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ColonizationNeeds());
     }
 }
+
 
 
 

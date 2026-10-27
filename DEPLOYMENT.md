@@ -19,3 +19,6 @@ Record your current Worker version and an up-to-date database recovery bookmark 
 ## Validation
 
 The Windows regression suite and 109 local Worker HTTP assertions passed. Tests cover per-player isolation, partial/mixed Inbound/Outbound, ship loss, shared retries, legacy migration, compact UI, quiet status, and Raven reporting. No real in-game end-to-end trade/delivery cycle was performed by automated tests. Confirm a small cycle with the correct profile and carrier setup before general use.
+
+
+Version 1.29 project selection is desktop-only and uses the same backend as current main. It preserves published 1.28.6 shared-sync fixes. The complete Windows suite includes ActiveProjectUITests: fixed/all/empty rollups, new/renamed IDs, individual inspection, cancellation, per-commander persistence and unchanged stock/transit. No additional backend migration/deployment is needed for project selection.

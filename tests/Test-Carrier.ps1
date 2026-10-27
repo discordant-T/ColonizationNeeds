@@ -6,7 +6,7 @@ $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('ColonizationNeeds-carrier-check
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     Copy-Item -LiteralPath (Join-Path $projectRoot 'bin\ColonizationNeeds.exe') -Destination (Join-Path $testRoot 'ColonizationNeeds.exe')
-    foreach($testName in @('SelfTestRunner','TransitTests','InboundTests','SharedCarrierTests','UITests','CarrierSetupUITests','QuietStatusUITests','CompactUITests')) {
+    foreach($testName in @('SelfTestRunner','TransitTests','InboundTests','SharedCarrierTests','UITests','CarrierSetupUITests','QuietStatusUITests','CompactUITests','ActiveProjectUITests')) {
         & $taskCompiler /nologo /out:"$testRoot\$testName.exe" /reference:"$testRoot\ColonizationNeeds.exe" /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "$PSScriptRoot\$testName.cs"
         if($LASTEXITCODE -ne 0) {throw "$testName compilation failed"}
         if($testName -like '*UITests') {

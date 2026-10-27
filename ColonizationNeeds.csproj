@@ -23,7 +23,7 @@
     <Compile Include="src\JournalCargoTracker.cs" />
     <Compile Include="src\SharedInventoryClient.cs" />
     <Compile Include="src\RavenDeliveryReporter.cs" />
-    <Compile Include="src\RavenConstruction.cs" /><Compile Include="src\PlayerProfiles.cs" /><Compile Include="src\CarrierInventory.cs" /><Compile Include="src\CarrierUI.cs" /><Compile Include="src\CarrierTests.cs" /><Compile Include="src\CarrierDiscovery.cs" /><Compile Include="src\TransitLedger.cs" /><Compile Include="src\CompactUI.cs" />
+    <Compile Include="src\RavenConstruction.cs" /><Compile Include="src\PlayerProfiles.cs" /><Compile Include="src\CarrierInventory.cs" /><Compile Include="src\CarrierUI.cs" /><Compile Include="src\CarrierTests.cs" /><Compile Include="src\CarrierDiscovery.cs" /><Compile Include="src\TransitLedger.cs" /><Compile Include="src\CompactUI.cs" /><Compile Include="src\ProjectSelection.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

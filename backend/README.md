@@ -39,3 +39,6 @@ Player journals are trusted client observations, not an authoritative live query
 ## Local validation
 
 node tests/backend-tests.mjs <python-executable> executes real Worker routes and SQL through a SQLite D1 adapter. It uses isolated synthetic players and inventory, never the live service. Windows build.ps1 covers the desktop/outbox/profile/DPAPI/UI/reporting paths. Keep all tests free of real credentials.
+
+
+Client 1.29 project selection is a local per-commander preference, not a server group setting. It requires no Worker/database deployment and does not modify shared stock or reporting. See [Project selection](../PROJECT-SELECTION.md).

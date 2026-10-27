@@ -1,5 +1,7 @@
 # Carrier accounting — 1.28.1
 
+In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+
 Compact/Full display is available through View; see [Compact view](COMPACT-VIEW.md). Need/In/Out/Collect are shorter labels for the same quantities. Hiding a cargo column does not remove it from the collection calculation.
 
 ## Columns and collection need

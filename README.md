@@ -1,4 +1,8 @@
-# ColonizationNeeds 1.28.6
+# ColonizationNeeds 1.29
+
+**New in 1.29:** choose your working projects using **Projects...** beside the project dropdown. The combined view totals only checked projects. Choices are saved per commander/PC; stock, Inbound, Outbound and reporting remain unchanged. See [Project selection](PROJECT-SELECTION.md). No backend changes are needed when upgrading from 1.28.6.
+
+Download the current [executable from the repository](https://github.com/discordant-T/ColonizationNeeds/raw/refs/heads/main/bin/ColonizationNeeds.exe) or [source on main](https://github.com/discordant-T/ColonizationNeeds).
 
 Windows Forms application for Elite Dangerous colonization supplies, with local or shared tracking across a squadron carrier, a personal carrier and multiple commanders on one PC.
 
@@ -38,3 +42,4 @@ Windows with .NET Framework 4.8 is required. `powershell -NoProfile -ExecutionPo
 The dated `README-1.26-reference.md` is historical documentation, not current setup instructions. No runtime credentials or inventory belong in the source package.
 
 The owner confirmed the v1.28.6 backend update was completed on October 23, 2026. This publication does not redeploy the backend. See [READ-OPTIMIZATION.md](READ-OPTIMIZATION.md).
+
