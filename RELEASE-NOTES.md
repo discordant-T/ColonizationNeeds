@@ -95,3 +95,7 @@ Close the previous app and run the supplied build on each hauling PC. Existing d
 
 The features above are published together in **v1.28.2**. Use [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest) for the executable and source package. README-1.26-reference.md is historical.
 
+
+## 1.29.1 - Projects grouped by star system
+
+The main selector and Projects checklist show system headings with indented projects. Existing build-ID selections, rollup quantities and inventory behavior are unchanged. This build requires no backend changes.

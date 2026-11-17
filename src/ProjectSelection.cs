@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -35,6 +36,55 @@ public partial class ColonizationNeeds
         public string id, name;
         public override string ToString() { return name; }
     }
+    readonly Dictionary<string, string> projectSystems = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    static string ProjectField(Dictionary<string, object> project, string field)
+    {
+        object value;
+        return project.TryGetValue(field, out value) ? (Convert.ToString(value) ?? "").Trim() : "";
+    }
+    static string ProjectName(Dictionary<string, object> project)
+    {
+        string name = ProjectField(project, "buildName");
+        return name.Length == 0 ? ProjectField(project, "buildId") : name;
+    }
+    string SystemName(Dictionary<string, object> project)
+    {
+        string name = ProjectField(project, "systemName"), known;
+        if (name.Length > 0) return name;
+        return projectSystems.TryGetValue(commander + "|" + ProjectField(project, "buildId"), out known) && known.Length > 0 ? known : "System unknown";
+    }
+    IEnumerable<IGrouping<string, Dictionary<string, object>>> GroupProjects(IEnumerable<Dictionary<string, object>> projects)
+    {
+        return projects.GroupBy(SystemName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key == "System unknown").ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+    }
+    async Task<Dictionary<string, Dictionary<string, object>>> ResolveProjectSystems(IEnumerable<Dictionary<string, object>> projects)
+    {
+        var details = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var project in projects)
+        {
+            string id = ProjectField(project, "buildId"), key = commander + "|" + id;
+            string name = ProjectField(project, "systemName");
+            if (name.Length > 0) { projectSystems[key] = name; continue; }
+            if (projectSystems.ContainsKey(key)) continue;
+            try
+            {
+                var detail = ParseProject(await GetJson("project/" + Uri.EscapeDataString(id)));
+                details[id] = detail;
+                projectSystems[key] = ProjectField(detail, "systemName");
+            }
+            catch (HttpRequestException) { break; }
+            catch (TaskCanceledException) { break; }
+            catch (Exception) { /* Missing optional system metadata must not hide the project. */ break; }
+        }
+        return details;
+    }
+    int FindProjectIndex(string id)
+    {
+        for (int i = 1; i < selection.Items.Count; i++)
+            if (String.Equals(((ProjectChoice)selection.Items[i]).Id, id, StringComparison.OrdinalIgnoreCase) && id != null) return i;
+        return 0;
+    }
     static string CombinedProjectName(ProjectSelectionOptions options, int selected, int available)
     {
         return options.all ? "All active projects (combined)" : "Active projects (combined: " + selected + " of " + available + ")";
@@ -49,6 +99,7 @@ public partial class ColonizationNeeds
         try
         {
             var active = ParseActive(await GetJson("cmdr/" + Uri.EscapeDataString(commander) + "/active"));
+            await ResolveProjectSystems(active);
             ProjectSelectionOptions previous;
             try { previous = ProjectSelectionOptions.Load(Path.GetDirectoryName(settings)); }
             catch (Exception ex) { MessageBox.Show(this, ex.Message + "\nChoose and Save a replacement selection."); previous = new ProjectSelectionOptions(); }
@@ -57,11 +108,14 @@ public partial class ColonizationNeeds
                 var explanation = new Label { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8), Text = "Choose which Raven projects contribute to the combined view.\nThis preference is saved for this commander on this PC." };
                 var automatic = new CheckBox { Dock = DockStyle.Top, Height = 32, Padding = new Padding(8, 0, 0, 0), Text = "Use all Raven-active projects automatically (including new projects)", Checked = previous.all };
                 var checklist = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.FixedSingle };
-                foreach (var project in active)
+                foreach (var group in GroupProjects(active))
                 {
-                    string id = Convert.ToString(project["buildId"]);
-                    var item = new ActiveProjectItem { id = id, name = (project.ContainsKey("buildName") ? Convert.ToString(project["buildName"]) : id) + "  [" + id + "]" };
-                    checklist.Items.Add(item, previous.Includes(id));
+                    checklist.Items.Add(new ActiveProjectItem { name = "— " + group.Key + " —" }, false);
+                    foreach (var project in group.OrderBy(ProjectName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        string id = ProjectField(project, "buildId");
+                        checklist.Items.Add(new ActiveProjectItem { id = id, name = "    " + ProjectName(project) + "  [" + id + "]" }, previous.Includes(id));
+                    }
                 }
                 var footer = new Panel { Dock = DockStyle.Bottom, Height = 72 };
                 var count = new Label { Dock = DockStyle.Top, Height = 25, Padding = new Padding(8, 4, 0, 0) };
@@ -79,12 +133,13 @@ public partial class ColonizationNeeds
                 {
                     if (updating) return;
                     updating = true;
-                    try { if (automatic.Checked) for (int i = 0; i < checklist.Items.Count; i++) checklist.SetItemChecked(i, true); }
+                    try { if (automatic.Checked) for (int i = 0; i < checklist.Items.Count; i++) if (((ActiveProjectItem)checklist.Items[i]).id != null) checklist.SetItemChecked(i, true); }
                     finally { updating = false; }
                     showCount();
                 };
                 checklist.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
                 {
+                    if (((ActiveProjectItem)checklist.Items[e.Index]).id == null) { e.NewValue = CheckState.Unchecked; return; }
                     if (updating) return;
                     automatic.Checked = false;
                     int selected = checklist.CheckedItems.Count + (e.NewValue == CheckState.Checked ? 1 : 0) - (e.CurrentValue == CheckState.Checked ? 1 : 0);
@@ -93,7 +148,7 @@ public partial class ColonizationNeeds
                 Action<bool> checkAll = delegate(bool value)
                 {
                     automatic.Checked = false; updating = true;
-                    try { for (int i = 0; i < checklist.Items.Count; i++) checklist.SetItemChecked(i, value); }
+                    try { for (int i = 0; i < checklist.Items.Count; i++) if (((ActiveProjectItem)checklist.Items[i]).id != null) checklist.SetItemChecked(i, value); }
                     finally { updating = false; }
                     showCount();
                 };

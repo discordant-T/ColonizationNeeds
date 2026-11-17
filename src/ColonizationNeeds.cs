@@ -13,9 +13,9 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyVersion("1.29.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.29.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.29 Active project selection")]
+[assembly: System.Reflection.AssemblyVersion("1.29.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.29.1.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.29.1 Projects by system")]
 
 public partial class ColonizationNeeds : Form
 {
@@ -369,7 +369,19 @@ wine|Legal Drugs|Wine";
         editInventory.Click += delegate { EditInventory(); };
         list.DoubleClick += delegate { EditInventory(); };
         list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; EditInventory(); } };
-        selection.SelectedIndexChanged += async delegate { if (!updatingSelection) await LoadProject(); };
+        selection.SelectedIndexChanged += async delegate
+        {
+            if (updatingSelection) return;
+            var selected = selection.SelectedItem as ProjectChoice;
+            if (selected != null && selected.Id == null)
+            {
+                updatingSelection = true;
+                try { selection.SelectedIndex = FindProjectIndex(shownId); }
+                finally { updatingSelection = false; }
+                return;
+            }
+            await LoadProject();
+        };
         project.KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await LoadProject(); } };
         timer.Tick += async delegate { if (!editingInventory && auto.Checked && !String.IsNullOrWhiteSpace(commander)) await LoadProject(); };
         try
@@ -1316,14 +1328,18 @@ wine|Legal Drugs|Wine";
             var active = ParseActive(await GetJson("cmdr/" + Uri.EscapeDataString(commander) + "/active"));
             var projectOptions = ProjectSelectionOptions.Load(Path.GetDirectoryName(settings));
             int chosenCount = active.Count(x => projectOptions.Includes(Convert.ToString(x["buildId"])));
+            var resolvedDetails = await ResolveProjectSystems(active);
             updatingSelection = true;
             try
             {
                 selection.Items.Clear(); selection.Items.Add(new ProjectChoice { Id = "", Name = CombinedProjectName(projectOptions, chosenCount, active.Count) });
-                foreach (var p in active)
-                    selection.Items.Add(new ProjectChoice { Id = Convert.ToString(p["buildId"]), Name = p.ContainsKey("buildName") ? Convert.ToString(p["buildName"]) : Convert.ToString(p["buildId"]) });
-                selection.SelectedIndex = 0;
-                for (int i = 1; i < selection.Items.Count; i++) if (((ProjectChoice)selection.Items[i]).Id == id) selection.SelectedIndex = i;
+                foreach (var group in GroupProjects(active))
+                {
+                    selection.Items.Add(new ProjectChoice { Name = "— " + group.Key + " —" });
+                    foreach (var p in group.OrderBy(ProjectName, StringComparer.OrdinalIgnoreCase))
+                        selection.Items.Add(new ProjectChoice { Id = ProjectField(p, "buildId"), Name = "    " + ProjectName(p) });
+                }
+                selection.SelectedIndex = FindProjectIndex(id);
                 string selectedId = ((ProjectChoice)selection.SelectedItem).Id;
                 if (selectedId != id) { id = selectedId; shownId = null; ClearCommodities(); }
             }
@@ -1337,7 +1353,8 @@ wine|Legal Drugs|Wine";
             {
                 var build = Convert.ToString(p["buildId"]);
                 if (id.Length > 0 ? build != id : !projectOptions.Includes(build)) continue;
-                var data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
+                Dictionary<string, object> data;
+                if (!resolvedDetails.TryGetValue(build, out data)) data = ParseProject(await GetJson("project/" + Uri.EscapeDataString(build)));
                 if (!data.ContainsKey("marketId") && p.ContainsKey("marketId")) data["marketId"] = p["marketId"];
                 fetchedProjects[build] = data;
                 projectCount++;

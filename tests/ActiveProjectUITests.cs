@@ -22,7 +22,7 @@ class ActiveProjectUITests
             if (request.Method != HttpMethod.Get) throw new Exception("Project preference tried to write to an API");
             string path = request.RequestUri.AbsolutePath; requests.Add(path);
             string body;
-            if (path.EndsWith("/active")) body = "[{\"buildId\":\"one\",\"buildName\":\"" + (renamed ? "Renamed" : "Same name") + "\"},{\"buildId\":\"two\",\"buildName\":\"Same name\"}" + (extra ? ",{\"buildId\":\"three\",\"buildName\":\"New project\"}" : "") + "]";
+            if (path.EndsWith("/active")) body = "[{\"buildId\":\"one\",\"systemName\":\"Alpha\",\"buildName\":\"" + (renamed ? "Renamed" : "Same name") + "\"},{\"buildId\":\"two\",\"systemName\":\"Beta\",\"buildName\":\"Same name\"}" + (extra ? ",{\"buildId\":\"three\",\"systemName\":\"Gamma\",\"buildName\":\"New project\"}" : "") + "]";
             else body = "{\"commodities\":{\"steel\":" + (path.EndsWith("/one") ? "200" : path.EndsWith("/two") ? "100" : "50") + "}}";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
         }
@@ -86,8 +86,8 @@ class ActiveProjectUITests
                 Picker(form, delegate(Form dialog)
                 {
                     var list = Controls(dialog).OfType<CheckedListBox>().Single();
-                    Check(list.Items.Count == 2, "Picker did not show Raven projects");
-                    list.SetItemChecked(1, false);
+                    Check(list.Items.Count == 4 && list.Items[0].ToString().Contains("Alpha") && list.Items[2].ToString().Contains("Beta"), "Picker did not show Raven projects");
+                    list.SetItemChecked(0, true); Check(!list.GetItemChecked(0), "System heading became checked"); list.SetItemChecked(3, false);
                     if(!String.IsNullOrEmpty(preview))using(var bitmap=new Bitmap(dialog.Width,dialog.Height)){dialog.DrawToBitmap(bitmap,new Rectangle(0,0,bitmap.Width,bitmap.Height));bitmap.Save(preview+".projects.png");}
                     Controls(dialog).OfType<Button>().Single(x => x.Text == "Save").PerformClick();
                 });
@@ -95,7 +95,7 @@ class ActiveProjectUITests
                 api.requests.Clear(); api.renamed = true; api.extra = true; Refresh(form); Need(form, 200);
                 Check(!api.requests.Any(x => x.EndsWith("/two") || x.EndsWith("/three")), "Excluded or new unchosen project fetched into combined total");
                 // Exclusion applies only to combined view, not individual inspection.
-                selector.SelectedIndex = 2; Application.DoEvents(); Refresh(form); Need(form, 100);
+                selector.SelectedIndex = 3; Application.DoEvents(); Check(selector.SelectedIndex == 0, "System heading changed the view"); selector.SelectedIndex = 4; Application.DoEvents(); Refresh(form); Need(form, 100);
                 selector.SelectedIndex = 0; Application.DoEvents(); Refresh(form); Need(form, 200);
                 string choices = File.ReadAllText(Path.Combine(root, "active-projects.json"));
                 Picker(form, delegate(Form dialog) { Controls(dialog).OfType<Button>().Single(x => x.Text == "Clear all").PerformClick(); Controls(dialog).OfType<Button>().Single(x => x.Text == "Cancel").PerformClick(); });
