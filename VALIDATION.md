@@ -1,24 +1,35 @@
-# Desktop validation — 1.28.6
+# Validation
+
+## 1.29.1 desktop validation
+
+[PR #12](https://github.com/discordant-T/ColonizationNeeds/pull/12) reports that the full Windows suite passed, including star-system heading and project-selection checks.
+
+## 1.29 desktop validation
+
+[PR #11](https://github.com/discordant-T/ColonizationNeeds/pull/11) reports that the full Windows suite passed. `ActiveProjectUITests` covers fixed, automatic, and empty project selections, new and renamed build IDs, individual inspection, cancellation, per-commander persistence, and unchanged stock and transit records.
+
+## 1.28.6 desktop validation
 
 The release build passed the full Windows regression suites, including credential encryption, player switching, column resizing, accounting, transit, Inbound, shared client, compact UI and Raven reporting. Backend integration results are recorded below. Tests use isolated local data and mocked HTTP; no production database changes were made during publication.
 
-## Prior validation history
 
-# Desktop validation — 1.28.5
+## 1.28.5 desktop validation
 
 The Windows build and all self-tests, credential encryption, accounting, transit, Inbound, shared-client, carrier-setup, quiet-status, compact-layout and Raven-reporting checks passed. The quiet-status UI regression additionally verifies that a 300-event outgoing journal backlog yields to window messages and reaches the correct durable offset. The reported user's exact frozen process was not available for stack inspection; this patch addresses blocking journal catch-up and reader initialization found in the player-switch path. Tests use isolated temporary profiles and do not modify live inventory or credentials.
+
+## 1.28.3 desktop validation
 
 The full Windows build and accounting, transit, Inbound, shared client, carrier setup, quiet status, compact UI, credential encryption and Raven reporting checks passed. Confirmed file/product version 1.28.3 and extracted the carrier icon from the built executable for visual inspection. The ICO contains 16, 24, 32, 48, 64, 128 and 256 pixel images and the source PNG has transparent pixels. Both build paths point to the same asset; only build.ps1 was executed. No backend deployment or live inventory changes were needed.
 
 ---
 
-# Desktop validation — 1.28.2
+## 1.28.2 desktop validation
 
 QuietStatusUITests verifies saved-cursor startup retains the observed commander without new rows, Shutdown produces quiet Idle, repeated stock refresh/poll cycles produce no text changes or duplicate log entries, a real different commander remains a stable visible warning, stock refresh cannot clear a tracking failure and a successful matching poll clears it. The full Windows accounting/profile/DPAPI/shared-client/Compact UI/Raven regression suite passed. Backend and database are unchanged.
 
 ---
 
-# Desktop validation — 1.28.1
+## 1.28.1 desktop validation
 
 Full Windows build and existing accounting/profile/shared-client/Raven regression checks passed. CompactUITests verifies 510 × 440 layout, narrow numeric columns, expandable controls/details, visible errors while collapsed, independent hidden columns/totals, unchanged collection arithmetic, saved size/preferences and profile isolation. Bounds assertions prevent overlap among the table, totals and status strip. A compact preview was rendered and visually checked; native combo content is not fully represented by DrawToBitmap, so control selections are checked programmatically.
 
@@ -26,7 +37,7 @@ The Worker and database are unchanged; backend integration results below remain 
 
 ---
 
-# Validation — 1.28
+## 1.28 validation
 
 Full Windows build and regression checks passed: application/profile isolation and DPAPI encryption, durable journal positions, market/direct transfer classification, carrier discovery/setup UI, legacy stock preservation, shared retries/lost acknowledgment, Raven contribution/depot/completion reporting and UI arithmetic/layout.
 
@@ -37,6 +48,3 @@ Backend integration tests passed **99 HTTP assertions** plus direct balance/SQL 
 No real in-game station purchase, carrier sale/transfer or construction delivery was performed by automated tests. A small live end-to-end cycle remains a user/game validation step. Read-only production preservation/capability checks and the actual deployed version are recorded in DEPLOYMENT.md. No stock or cargo test mutations are written in production.
 
 Release validation: backend-tests.mjs passed 109 HTTP assertions plus balance, isolation, migration, retry and reconciliation checks against local SQLite. The Windows build and all regression suites passed. Production deployment is recorded from the owner's confirmation, not a new automated deployment.
-
-
-Version 1.29 project selection is desktop-only and uses the same backend as current main. It preserves published 1.28.6 shared-sync fixes. The complete Windows suite includes ActiveProjectUITests: fixed/all/empty rollups, new/renamed IDs, individual inspection, cancellation, per-commander persistence and unchanged stock/transit. No additional backend migration/deployment is needed for project selection.

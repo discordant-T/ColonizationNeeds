@@ -1,6 +1,6 @@
-# Project map — 1.28.1
+# Project map
 
-Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/ColonizationNeeds.exe and runs regression checks. Canonical current behavior is documented in README.md and CARRIER-TRACKING.md; RELEASE-NOTES.md accounts for all changes from the earlier acquisition tracker through Inbound/Outbound.
+Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/ColonizationNeeds.exe and runs regression checks. Canonical current behavior is documented in README.md and CARRIER-TRACKING.md; [Release notes](RELEASE-NOTES.md) cover the changes from acquisition tracking through project selection and star-system grouping.
 
 | Component | Responsibility |
 |---|---|
@@ -22,4 +22,4 @@ Standalone .NET Framework Windows Forms app. build.ps1 compiles bin/Colonization
 
 Keep source and runnable executable together, but never package runtime inventory, player tokens or API keys. Production deployments must preserve the existing database/registry/secrets and record validation/recovery information in DEPLOYMENT.md. Do not deploy merely to run tests.
 
-Local 1.29 adds src/ProjectSelection.cs (per-profile fixed/all-project preferences and picker), PROJECT-SELECTION.md and tests/ActiveProjectUITests.cs. The tests use a real WinForms message loop and mocked GET-only Raven responses, and confirm unchanged stock/transit records. Base package 1.28.6 SHA256 matches desktop. Build and full Windows regression suite pass; no backend deployment.
+Version 1.29 introduced per-profile project selection in `src/ProjectSelection.cs`. Version 1.29.1 added star-system headings to both project pickers. `tests/ActiveProjectUITests.cs` uses a real WinForms message loop and mocked GET-only Raven responses to check project selection and stock/transit preservation. See [Project selection](PROJECT-SELECTION.md) and [Validation](VALIDATION.md).

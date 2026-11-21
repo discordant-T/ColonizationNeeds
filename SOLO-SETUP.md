@@ -1,8 +1,8 @@
-# Solo setup — 1.28.6
+# Solo setup
 
-In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+Use **Projects...** beside the project dropdown to choose which projects count toward combined totals. Choices are saved per commander on each PC. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md).
 
-Cloudflare is optional for a single PC. Run the supplied executable, configure your exact Raven commander/key and journal folder in Settings, and leave Use shared inventory disabled. Local carrier stock and ship cargo are saved per profile. Multiple PCs or collaborating commanders should use the shared backend; local files do not synchronize themselves.
+Cloudflare is optional for a single PC. Run the [Windows build listed in the README](README.md), configure your exact Raven commander/key and journal folder in Settings, and leave Use shared inventory disabled. Local carrier stock and ship cargo are saved per profile. Multiple PCs or collaborating commanders should use the shared backend; local files do not synchronize themselves.
 
 Discover and configure your personal and/or squadron carrier in Carriers / review. Use Move from legacy once to split old inventory between carriers without duplicating it. Use Edit inventory for actual stock corrections. Keep old stock/settings files when upgrading; existing encrypted keys and planned-construction/reporting queues are retained.
 

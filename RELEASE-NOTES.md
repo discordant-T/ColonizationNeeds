@@ -1,17 +1,21 @@
-# 1.29 - Active project selection 
+# Release notes
+
+## 1.29.1 — Projects grouped by star system
+
+Available on `main`. See the [README](README.md) for the Windows download. The project dropdown and **Projects...** checklist group projects under star system headings. Existing build-ID selections and rollup behavior carry forward. No backend update is needed.
+
+## 1.29 — Active project selection
 
 - Project selection was developed from the verified 1.28.6 package, then combined with current GitHub main to preserve newer shared-sync changes and fresh-install guide corrections.
 - Added Projects beside the project selector in Compact and Full view. Save a per-commander fixed subset or include all current/future Raven-active projects automatically. Empty selection stays empty. Individual excluded projects remain viewable.
 - Combined quantities and To collect use only the chosen projects. Stock, Inbound, Outbound, ledger events and Raven reporting are unchanged. No backend deployment or inventory migration is needed.
 - Stable build-ID choices survive renames, refreshes, restart and commander changes. New projects are excluded in fixed mode. Cancel preserves existing choices; unreadable files report an error rather than silently including all.
 - Build and all carrier, transit, inbound, shared, reporter, status and Compact UI suites pass. New mocked-API UI tests cover the picker, subset/all/empty totals, new/renamed projects, individual inspection, cancellation, per-profile isolation, persistence and unchanged carrier/transit data. No live account data was changed by these tests.
-- Full instructions: [Project selection](PROJECT-SELECTION.md). Desktop executable is not automatically replaced. Version 1.29 is available on the repository main branch.
+- See [Project selection](PROJECT-SELECTION.md). The published [v1.29 release](https://github.com/discordant-T/ColonizationNeeds/releases/tag/v1.29) includes the Windows executable, source-and-build ZIP, and SHA-256 checksum.
 
 ## 1.28.6 — Shared read optimization
 
 Built on existing 1.28.5, retaining responsive player switching. Unchanged syncs skip history replay; full snapshots include carriers. Includes additive indexes and the matching Worker update for savings. The owner confirmed these backend changes were completed on October 23, 2026; publishing this release does not repeat deployment. See READ-OPTIMIZATION.md.
-
-# Release history and upgrade coverage
 
 ## 1.28.5 — Responsive player switching
 
@@ -91,11 +95,6 @@ Documentation clarification: added a switch-on/off behavior table and a buy-for-
 
 ## Upgrade
 
-Close the previous app and run the supplied build on each hauling PC. Existing data stays in Local AppData. Do not repeat Legacy migration or carrier setup after 1.27.x. From an old backend, apply missing additive schema-v2.sql and schema-transit.sql before the current Worker. Existing 1.27.2 databases need only the new Worker. Keep DB bindings/secrets/player tokens unchanged. Fresh clients baseline history and do not assume existing ship cargo. Check a small real station → carrier → construction cycle after upgrading.
+Close the previous app and run the [Windows build listed in the README](README.md) on each hauling PC. Existing data stays in Local AppData. Skip any carrier setup or Legacy stock migration you already completed. For an older backend, apply the missing additive carrier and transit schemas. Backends predating the v1.28.6 shared-read update also need the additive read-optimization indexes. See [Backend setup](backend/README.md). Keep DB bindings, secrets, and player tokens. Fresh clients baseline history and do not assume existing ship cargo. Check a small real station → carrier → construction cycle after upgrading.
 
-The features above are published together in **v1.28.2**. Use [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest) for the executable and source package. README-1.26-reference.md is historical.
-
-
-## 1.29.1 - Projects grouped by star system
-
-The main selector and Projects checklist show system headings with indented projects. Existing build-ID selections, rollup quantities and inventory behavior are unchanged. This build requires no backend changes.
+[Historical 1.26 reference](README-1.26-reference.md).

@@ -1,8 +1,8 @@
+# Shared backend
+
 ## v1.28.6 backend update
 
-The owner confirmed the shared-read optimization Worker and additive indexes were applied on October 23, 2026. This GitHub publication does not redeploy or migrate production. Existing installations that have not upgraded should follow READ-OPTIMIZATION.md (in the repository root); preserve all existing stock, ledgers, users, bindings and secrets.
-
-# Shared backend — 1.28.6
+The owner confirmed that the shared-read optimization Worker and additive indexes were applied on October 23, 2026. The 1.29 and 1.29.1 desktop changes require no additional Worker deployment or database migration after the v1.28.6 backend update. For older deployments, see [Shared read optimization](../READ-OPTIMIZATION.md).
 
 Cloudflare Worker plus D1, with the database binding named DB and OWNER_TOKEN stored as a Cloudflare secret. Never embed owner/player/Cloudflare credentials in source or ship them in the Windows executable.
 
@@ -14,7 +14,7 @@ For an independent new service, create your own Cloudflare Worker and D1 databas
 2. Keep the existing DB binding, OWNER_TOKEN, players/token hashes, original inventory/ledger, carrier registry and cargo events. Do not create a new database or reset user stock for an upgrade. Record the active version/recovery information before changing production.
 3. Deploy worker.js to the existing service. Verify GET /health: ok true, schema 2, transit true, inbound true. Check authenticated inventory/carrier reads using existing player identities. Test mutations locally, not against production stock.
 4. Create player tokens with Create-Player.cmd or Create-Player.ps1. The script prompts for the owner secret with hidden input. Use the same GroupId for collaborating commanders, unique player identities/tokens, and member or admin role as appropriate. A member never needs the owner secret or Cloudflare sign-in.
-5. Members configure HTTPS Worker root URL and their player access token in Settings → Shared inventory. The app uses Bearer authentication and DPAPI-encrypted local settings. Admins save the shared Squadron/Personal carrier registry; members adopt it automatically. Upgrade hauling clients to 1.28.6.
+5. Members configure HTTPS Worker root URL and their player access token in Settings → Shared inventory. The app uses Bearer authentication and DPAPI-encrypted local settings. Admins save the shared Squadron/Personal carrier registry; members adopt it automatically. Use the [Windows build listed in the README](../README.md) on hauling PCs.
 
 ## API and storage
 
@@ -41,4 +41,4 @@ Player journals are trusted client observations, not an authoritative live query
 node tests/backend-tests.mjs <python-executable> executes real Worker routes and SQL through a SQLite D1 adapter. It uses isolated synthetic players and inventory, never the live service. Windows build.ps1 covers the desktop/outbox/profile/DPAPI/UI/reporting paths. Keep all tests free of real credentials.
 
 
-Client 1.29 project selection is a local per-commander preference, not a server group setting. It requires no Worker/database deployment and does not modify shared stock or reporting. See [Project selection](../PROJECT-SELECTION.md).
+Project selection is saved locally per commander on each PC. See [Project selection](../PROJECT-SELECTION.md).

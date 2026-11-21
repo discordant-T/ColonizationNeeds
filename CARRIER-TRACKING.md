@@ -1,6 +1,6 @@
-# Carrier accounting — 1.28.1
+# Carrier accounting
 
-In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+Use **Projects...** beside the project dropdown to choose which projects count toward combined totals. Choices are saved per commander on each PC. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md).
 
 Compact/Full display is available through View; see [Compact view](COMPACT-VIEW.md). Need/In/Out/Collect are shorter labels for the same quantities. Hiding a cargo column does not remove it from the collection calculation.
 
@@ -68,7 +68,7 @@ All observed deposits to a configured carrier count as Stock, including goods yo
 
 Commodities are fungible, so mixed personal/tracked batches cannot be physically identified. For a deposit the app consumes Inbound for the actual destination (including Either) first, then Outbound from that carrier, then other tracked lots. For a delivery or other consumption it prefers Outbound, then Inbound; lots at the same priority are consumed oldest first. Direct station-to-construction delivery can therefore clear Inbound without touching carrier stock. Partial loads clear only their amount. Depositing at a different configured carrier clears the ship cargo and credits the actual receiving carrier.
 
-Shared mode separates lots by player identity and shares group totals. One player's delivery cannot clear another's cargo. Events are ordered by observed journal time, with stable receipt order for timestamp ties. Stable IDs prevent duplicates across retries/restarts. Stock movements and their Outbound/return effects commit atomically through the stock-ledger trigger; Inbound and consumption use the durable outbox. Everyone hauling should use 1.28. Older clients cannot report new Inbound intent and display the earlier columns.
+Shared mode separates lots by player identity and shares group totals. One player's delivery cannot clear another's cargo. Events are ordered by observed journal time, with stable receipt order for timestamp ties. Stable IDs prevent duplicates across retries/restarts. Stock movements and their Outbound/return effects commit atomically through the stock-ledger trigger; Inbound and consumption use the durable outbox. Everyone hauling should use the [Windows build listed in the README](README.md). Clients older than 1.28 cannot report new Inbound intent and display the earlier columns.
 
 ## Carrier discovery and first setup
 
