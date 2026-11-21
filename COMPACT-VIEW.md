@@ -1,6 +1,6 @@
-# Compact view — 1.28.2
+# Compact view
 
-In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+Use **Projects...** beside the project dropdown to choose which projects count toward combined totals. Choices are saved per commander on each PC. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md).
 
 Choose **View → Compact view**. The default compact size is **510 × 440 pixels**, with a **480-pixel minimum width**. Resize it to suit your screen. **View → Full view** restores the wider layout. Each player remembers their own view, sizes, expanded panels, visible cargo columns and totals preference; new profiles start with Full view.
 

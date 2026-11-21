@@ -1,8 +1,8 @@
-# Leader installation and administration — 1.28.6
+# Leader installation and administration
 
-In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+Use **Projects...** beside the project dropdown to choose which projects count toward combined totals. Choices are saved per commander on each PC. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md).
 
-Download the **v1.28.6** executable/source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest). Run bin/ColonizationNeeds.exe on Windows with .NET Framework 4.8. Existing installations keep their Local AppData settings, inventory, encrypted API keys, profiles, carrier selections and queues. Close the old app before upgrading. Do not repeat Legacy migration.
+Download the [Windows build listed in the README](README.md) and run it on Windows with .NET Framework 4.8. Existing installations keep their Local AppData settings, inventory, encrypted API keys, profiles, carrier selections and queues. Close the old app before upgrading. Do not repeat Legacy migration.
 
 1. Configure your exact Raven commander name, that commander's Raven API key if required, and the Elite Dangerous journal directory in Settings. Refresh and check All active projects or an individual project. A shared inventory token does not grant Raven project access.
 2. For an existing backend retain the DB binding, OWNER_TOKEN secret, players, stock, ledgers and registry. The supplied Worker supports Inbound and Outbound with schema 2 plus schema-transit.sql. The v1.28.6 backend also requires schema-read-optimization.sql; see READ-OPTIMIZATION.md. Fresh installation details are in backend/README.md.
@@ -10,7 +10,7 @@ Download the **v1.28.6** executable/source package from [GitHub Releases](https:
 4. Under Settings → Shared inventory, enable sharing and enter the HTTPS Worker root URL and your player token. Test connection and Save. Keep the service URL and group consistent across members. Tokens are encrypted with Windows DPAPI on that PC.
 5. Open Carriers / review, discover your observed carriers, assign Squadron/Personal and Save shared carriers as admin. Members synchronize the same IDs. Manual MarketID fallback requires confirmation if not observed.
 6. On first migration only, assign existing Legacy stock with Edit inventory → Move from legacy. Split it between carriers without changing combined totals. Reconcile actual quantities if prior activity was unobserved.
-7. Select Automatic. Enable Collecting for carriers and choose a destination only while buying intended supplies at stations. All hauling members should run 1.28.6. Check a small purchase, partial carrier sale/direct transfer, withdrawal, delivery and return before broader use.
+7. Select Automatic. Enable Collecting for carriers and choose a destination only while buying intended supplies at stations. All hauling members should use the [Windows build listed in the README](README.md). Check a small purchase, partial carrier sale/direct transfer, withdrawal, delivery and return before broader use.
 
 Use Add player for other commanders on the same PC. Each has separate Raven/shared credentials, stock/cargo state, collection intent, journal cursor and reporting queues. See PLAYER-PROFILES.md.
 

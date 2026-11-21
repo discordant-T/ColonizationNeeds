@@ -1,14 +1,12 @@
-# ColonizationNeeds 1.29
+# ColonizationNeeds 1.29.1
 
-**New in 1.29:** choose your working projects using **Projects...** beside the project dropdown. The combined view totals only checked projects. Choices are saved per commander/PC; stock, Inbound, Outbound and reporting remain unchanged. See [Project selection](PROJECT-SELECTION.md). No backend changes are needed when upgrading from 1.28.6.
+**New in 1.29.1** — The project dropdown and **Projects...** checklist group projects by star system. Use **Projects...** to choose which projects count toward the combined totals. Selections are saved per commander on each PC. See [Project selection](PROJECT-SELECTION.md).
 
-Download the current [executable from the repository](https://github.com/discordant-T/ColonizationNeeds/raw/refs/heads/main/bin/ColonizationNeeds.exe) or [source on main](https://github.com/discordant-T/ColonizationNeeds).
+Download the [1.29.1 Windows executable from `main`](https://github.com/discordant-T/ColonizationNeeds/raw/refs/heads/main/bin/ColonizationNeeds.exe). The latest published GitHub release, [v1.29](https://github.com/discordant-T/ColonizationNeeds/releases/tag/v1.29), includes a Windows executable, a source-and-build ZIP, and a SHA-256 checksum.
 
 Windows Forms application for Elite Dangerous colonization supplies, with local or shared tracking across a squadron carrier, a personal carrier and multiple commanders on one PC.
 
-Version **1.28.6** reduces shared inventory reads when nothing has changed and includes carrier configuration in full snapshots. It retains responsive player switching, the column-resizing fix, compact In/Out headings and existing encrypted credentials, inventory and reporting queues. See [shared read optimization](READ-OPTIMIZATION.md).
-
-Run `bin/ColonizationNeeds.exe`. Existing settings, encrypted keys, inventory, carrier selections and reporting queues are reused. Close the earlier app first. Upgrading from 1.27.x does not require repeating carrier setup or moving Legacy stock again. The current published release is **v1.28.6**. Download its executable and source package from [GitHub Releases](https://github.com/discordant-T/ColonizationNeeds/releases/latest).
+Close the running app before launching the new executable. Existing profiles, encrypted keys, inventory, carrier selections, and reporting queues are retained. Skip any carrier setup or Legacy stock migration you already completed. Upgrading from 1.28.6 or 1.29 requires no backend update.
 
 The table is **Commodity | To deliver | Stock | Inbound | Outbound | To collect**. To collect is `max(0, To deliver - Stock - Inbound - Outbound)` per commodity. Hover the headings for definitions.
 
@@ -41,5 +39,5 @@ Windows with .NET Framework 4.8 is required. `powershell -NoProfile -ExecutionPo
 
 The dated `README-1.26-reference.md` is historical documentation, not current setup instructions. No runtime credentials or inventory belong in the source package.
 
-The owner confirmed the v1.28.6 backend update was completed on October 23, 2026. This publication does not redeploy the backend. See [READ-OPTIMIZATION.md](READ-OPTIMIZATION.md).
+Version 1.28.6 introduced shared-read optimization. The owner confirmed the backend update on October 23, 2026. See [Shared read optimization](READ-OPTIMIZATION.md) for older deployments.
 

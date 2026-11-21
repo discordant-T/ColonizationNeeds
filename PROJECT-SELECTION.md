@@ -1,6 +1,8 @@
-# Choose active projects - version 1.29
+# Choose active projects
 
 Use **Projects...** beside the project dropdown to control which construction projects contribute to your combined requirements. The button is available in both Compact and Full view.
+
+In 1.29.1, the main dropdown and **Projects...** checklist group projects by star system. The combined view appears at the top. Choose or check individual projects under each heading. Projects without a system name appear under **System unknown**.
 
 ## Choose your current work
 
@@ -27,5 +29,3 @@ Choices are saved in **active-projects.json** in the selected commander's profil
 This feature filters the local view. It does not change Raven's plan status, commander membership or project completion; it does not create or cancel in-game constructions or alter carrier orders. Delivery/depot/completion reporting remains independent and continues for eligible new events even when a project is excluded from the combined view. No backend deployment or inventory migration is needed.
 
 If a selected project is absent, ensure it is active for the configured Raven commander and refresh. A local checkbox cannot make a planned-only or unlinked project appear in Raven's active list. If saved choices are unreadable, the app reports the error instead of silently including everything; open Projects, choose a replacement selection and Save.
-
-In 1.29.1, both the Projects checklist and the main dropdown group projects under star system headings. The combined view remains at the top. System headings are labels; choose or check individual projects beneath them. If Raven does not provide a system name, the project remains selectable under **System unknown**.

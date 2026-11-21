@@ -1,10 +1,10 @@
-# ColonizationNeeds
+# ColonizationNeeds 1.26.1 historical reference
 
-**Current local build: 1.26.1.** A compact Windows application for Elite Dangerous colonization requirements and tracked carrier inventory. Source and a ready-to-run executable are included in this public repository.
+**Historical reference for the 1.26.1 local build.** A compact Windows application for Elite Dangerous colonization requirements and tracked carrier inventory.
 
-Download [ColonizationNeeds.exe](https://github.com/discordant-T/ColonizationNeeds/raw/refs/heads/main/bin/ColonizationNeeds.exe), or use **Code > Download ZIP** and run `bin\ColonizationNeeds.exe`. The executable can run from any folder by itself. Requires Windows with .NET Framework 4.8, normally included in Windows 10/11; no installer, SDK, Python or Electron is needed. The executable is unsigned.
+For current downloads, see the [main README](README.md). The 1.26.1 executable ran as a standalone application on Windows with .NET Framework 4.8 and was unsigned.
 
-The profile-enabled **1.26.1** executable is currently supplied locally. GitHub's published stable executable remains **1.25**, which does not have the Player selector.
+At the time, the published stable release was **1.25**. The locally supplied **1.26.1** build added the Player selector.
 
 ## Guides
 

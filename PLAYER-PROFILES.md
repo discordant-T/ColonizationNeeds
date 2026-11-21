@@ -1,6 +1,6 @@
-# Multiple commanders and PCs — 1.28
+# Multiple commanders and PCs
 
-In **version 1.29**, use **Projects...** beside the project dropdown to choose which projects feed the combined rollup. Choices are separate per commander/PC and leave shared stock, Inbound/Outbound and Raven status unchanged. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md). No backend update is required for this feature.
+Use **Projects...** beside the project dropdown to choose which projects count toward combined totals. Choices are saved per commander on each PC. Individual projects remain viewable. See [Project selection](PROJECT-SELECTION.md).
 
 Version 1.28.5 keeps the window responsive during journal catch-up when changing players. A switching message appears while outgoing events finish saving; account controls are temporarily unavailable until the incoming profile is loaded. Existing account data and credentials do not need resetting. If an older version is stuck, close it with Task Manager and reopen with the updated executable; keep the saved profile folders intact.
 
@@ -10,7 +10,7 @@ Choose the active commander with Player. Wait for current operations to finish; 
 
 Profiles in the same shared group use separate player tokens. Carrier configuration and stock/cargo totals are shared, while cargo lots remain owned by the reporting player. Their Raven project lists and API access remain separate. Other profiles may show combined shared supply without having access to every member's Raven projects.
 
-On another PC, install 1.28, configure the same commander and their existing shared player token, then verify the service/group. Windows DPAPI-encrypted settings files cannot simply be decrypted under a different Windows identity. Let pending work finish before moving PCs. Keep original journal filenames when copying logs so event identities remain stable. A fresh installation establishes a baseline; it does not replay old stock or assume existing ship cargo. Never copy another commander's credentials or cargo state to make a profile appear initialized.
+On another PC, install the [Windows build listed in the README](README.md), configure the same commander and their existing shared player token, then verify the service/group. Windows DPAPI-encrypted settings files cannot simply be decrypted under a different Windows identity. Let pending work finish before moving PCs. Keep original journal filenames when copying logs so event identities remain stable. A fresh installation establishes a baseline; it does not replay old stock or assume existing ship cargo. Never copy another commander's credentials or cargo state to make a profile appear initialized.
 
 Original Required totals are now internal recovery facts; the visible To deliver column is remaining construction need. If it is Unknown, refresh Raven with the correct account or visit the matching depot and open Construction Services for a new observation. This does not require enabling reporting. See CARRIER-TRACKING.md for Unknown stock/cargo and synchronization issues.
 
